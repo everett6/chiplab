@@ -13,7 +13,6 @@ from chiplab.engine.discrete_event import run_discrete_event_simulation
 from chiplab.engine.analytical import run_analytical_simulation
 
 ECHO_YAML = "/home/everett/Chip Lab/projects/echo/echo_v0_1.yaml"
-# The ECHO design fails DES validation (pim_0 has zero capacity), so DES tests use the example.
 DES_YAML = "/home/everett/Chip Lab/examples/transformer_accelerator.yaml"
 
 
@@ -48,16 +47,22 @@ def _workload(flops: float = 1.0e12, bytes_read: float = 1.0e9, bytes_write: flo
 
 
 def test_des_compute_time_unit_conversion():
-    """Compute time must be FLOPs / (TOPS * 1e12) seconds, reported in ms."""
+    """Compute time must be FLOPs / (TOPS * 1e12) seconds, reported in ms.
+
+    The DES runs engines at their effective rate (the compute model's derating), so a
+    compute-only workload with one request should take FLOPs / effective TOPS.
+    """
     design = _des_design()
     wl = _workload(flops=1.0e12, bytes_read=0.0, bytes_write=0.0)
     cfg = SimulationConfig(fidelity=FidelityLevel.DISCRETE_EVENT, num_requests=1)
     result = run_discrete_event_simulation(design, wl, cfg, design_id="transformer")
-    peak_tops = result.metrics.peak_compute_tops
-    assert peak_tops > 0
     assert result.success, result.error_message
-    expected_ms = 1.0e12 / (peak_tops * 1e12) * 1e3
-    assert result.metrics.estimated_latency_ms == pytest.approx(expected_ms, rel=1e-2)
+    eff_tops = run_analytical_simulation(design, wl, SimulationConfig()).metrics.effective_compute_tops
+    assert eff_tops > 0
+    expected_ms = result.raw_details["total_flops"] / (eff_tops * 1e12) * 1e3
+    # within 3%: tile granularity across unequal engines plus the tiny gating operators
+    assert result.metrics.estimated_latency_ms == pytest.approx(expected_ms, rel=3e-2)
+    assert result.metrics.utilization_pct > 95.0
 
 
 def test_des_energy_is_power_times_latency_in_mj():

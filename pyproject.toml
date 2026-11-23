@@ -10,7 +10,6 @@ dependencies = [
     "numpy",
     "pandas",
     "pyyaml",
-    "simpy",
     "starlette",
     "uvicorn",
 ]

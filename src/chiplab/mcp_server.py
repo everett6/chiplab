@@ -209,10 +209,23 @@ def chip_run_simulation(
     # Run simulation based on fidelity
     from chiplab.engine import run_analytical_simulation, run_discrete_event_simulation
 
+    fallback_note = None
     if fidelity_level == FidelityLevel.DISCRETE_EVENT:
         result = run_discrete_event_simulation(design_spec, workload_obj, config, design_id)
     else:
+        if fidelity_level in (FidelityLevel.SPECIALIZED, FidelityLevel.RTL_CIRCUIT):
+            # No integrated backend exists for these levels: run analytical and label it so.
+            from chiplab.backends import backend_status
+            fallback_note = (
+                f"Requested fidelity '{fidelity_level.value}' is not available (external "
+                f"backends: {backend_status()}); ran the analytical model instead. The result "
+                "is labeled analytical.")
+            fidelity_level = FidelityLevel.ANALYTICAL
+            config = config.model_copy(update={"fidelity": fidelity_level})
         result = run_analytical_simulation(design_spec, workload_obj, config, design_id)
+    run_warnings = list(getattr(result, "warnings", []))
+    if fallback_note:
+        run_warnings.insert(0, fallback_note)
 
     # Save to experiment store
     simulation_result = SimulationResult(
@@ -226,7 +239,7 @@ def chip_run_simulation(
         metrics=getattr(result, "metrics", {}),
         bottleneck=getattr(result, "bottleneck", {}),
         assumptions=getattr(result, "assumptions", []),
-        warnings=getattr(result, "warnings", []),
+        warnings=run_warnings,
         raw_details=getattr(result, "raw_details", {}),
         success=getattr(result, "success", True),
         error_message=getattr(result, "error_message", None),
@@ -245,6 +258,7 @@ def chip_run_simulation(
         "metrics": simulation_result.metrics.model_dump(),
         "bottleneck": simulation_result.bottleneck.model_dump(),
         "assumptions": [a.model_dump() for a in simulation_result.assumptions],
+        "warnings": simulation_result.warnings,
         "success": simulation_result.success,
         "error_message": simulation_result.error_message,
     }
@@ -502,15 +516,15 @@ def get_models_assumptions() -> dict:
         },
         "discrete_event": {
             "name": "Discrete-Event Fidelity",
-            "description": "Level 2 discrete-event simulation (SimPy): models request queueing, bank/channel contention, compute scheduling, and interconnect contention; not RTL/cycle-accurate.",
+            "description": "Level 2 tile-level discrete-event simulation (heap-driven, no SimPy): operator tiles queue FIFO for memory banks/channels, interconnect links along topology routes (mesh XY, ring, crossbar/PCIe ports, shared bus) and compute engines, with closed-loop requests. Simulates contention and queueing; first-order timing (no DRAM command timing, no caches, store-and-forward links); not cycle-accurate.",
         },
         "specialized": {
             "name": "Specialized Fidelity",
-            "description": "Level 3 specialized model: optimized cycle-accurate simulation for specific architectures.",
+            "description": "Level 3 external simulators (Ramulator, SCALE-Sim, Accel-Sim). NOT INTEGRATED: ChipLab only detects them; requesting this level runs the analytical model and labels the result analytical.",
         },
         "rtl_circuit": {
             "name": "RTL Circuit Fidelity",
-            "description": "Level 4 RTL circuit simulation: cycle-accurate verification at the RTL level.",
+            "description": "Level 4 RTL: not available for whole designs through chip_run_simulation (falls back to analytical, labeled so). Generated on-chip memory RTL is verified separately with Verilator (design_onchip_memory_subsystem + tests/test_rtl_verilator.py).",
         },
     }
 
@@ -542,6 +556,7 @@ def get_models_assumptions() -> dict:
 
     return {
         "fidelity_levels": fidelity_levels,
+        "external_backends": __import__("chiplab.backends", fromlist=["backend_status"]).backend_status(),
         "provenance_categories": provenance_categories,
         "default_assumptions": default_assumptions,
     }
@@ -616,11 +631,15 @@ search each query, then chip_set_price with the number, unit-matched, and the so
 
 def _resolve_design(design_id_or_name: str | None, spec: str | dict | None,
                     version: str | None = None) -> tuple[str | None, DesignSpec]:
+    from chiplab.backends.ecore import apply_ecore_to_design
     if spec is not None:
-        return None, _parse_spec(spec)
-    if not design_id_or_name:
+        design_id, design = None, _parse_spec(spec)
+    elif not design_id_or_name:
         raise ValueError("Pass design_id_or_name (a saved design) or spec (YAML/JSON/dict).")
-    return store.get_design(design_id_or_name, version)
+    else:
+        design_id, design = store.get_design(design_id_or_name, version)
+    # eCore-backed PIM chiplets get their area/power from Echo Lab before cost or validation.
+    return design_id, apply_ecore_to_design(design)[0]
 
 
 def _volume(design: DesignSpec, volume: int | None) -> int:
@@ -764,6 +783,26 @@ def chip_evaluate(design_id_or_name: str | None = None, spec: str | dict | None 
         "price_data": cost["price_data"],
         "fidelity_disclaimer": sim["fidelity_disclaimer"],
     }
+
+
+def simulate_ecore_array(rows: int = 64, cols: int = 64, precision: str = "int8",
+                         adc_bits: int = 8, organization: str = "org_b",
+                         seed: int = 42) -> dict:
+    """Simulate one analog DRAM compute-in-memory array with Echo Lab's eCore (SPICE-
+    calibrated, generic models). Returns end-to-end matvec accuracy (SNR, rel L2, RMSE, max
+    error vs exact W@x), latency/energy/area with per-term breakdowns and source tags,
+    derived TOPS, pJ/op and W per array, calibration provenance (SPICE, file date, sha256)
+    and limitations. rows/cols 8-1024; precision int4|int8|fp8_e4m3|fp8_e5m2|fp16;
+    adc_bits 4|6|8|10|12; organization org_a (bit-sliced bitline) | org_b (shared charge
+    accumulator). Deterministic for a given seed. To use the result in a chip design, add
+    compute.ecore {rows, cols, precision, adc_bits, organization, arrays?} to a PIM chiplet."""
+    from chiplab.backends.ecore import EcoreBackend, EcoreUnavailableError
+    try:
+        return EcoreBackend().simulate(rows=rows, cols=cols, precision=precision,
+                                       adc_bits=adc_bits, organization=organization,
+                                       seed=seed)
+    except EcoreUnavailableError as e:
+        raise RuntimeError(f"eCore backend unavailable: {e}") from e
 
 
 def chip_cost_references(prefix: str = "") -> dict:
@@ -1068,6 +1107,16 @@ def ingest_byo_pdk(node: str, liberty: str | None = None, liberty_path: str | No
             "lef_summary": (lef_d or {}).get("summary")}
 
 
+MEMORY_MODEL_CLASS = {
+    "class": "on_chip_macro",
+    "covers": ["6T SRAM", "2T gain-cell eDRAM", "3T gain-cell eDRAM"],
+    "not_covered": ["1T1C commodity DRAM arrays", "HBM stacks", "analog DRAM compute-in-memory"],
+    "note": "Banked on-die macros with digital PIM lanes. Off-chip DRAM/HBM are modeled at "
+            "chiplet level (MemorySpec in chip designs); analog CIM needs a circuit-level "
+            "backend.",
+}
+
+
 def design_onchip_memory_subsystem(config: dict | None = None, workload: dict | None = None,
                                    simulate_cycles: int = 20_000, generate_rtl: bool = False,
                                    output_name: str | None = None,
@@ -1098,7 +1147,7 @@ def design_onchip_memory_subsystem(config: dict | None = None, workload: dict | 
     cfg = OnChipMemoryConfig.model_validate(config or {})
     wl = MemWorkload.model_validate(workload or {})
     report = analyze(cfg, wl)
-    out: dict = {"design": cfg.name, **report}
+    out: dict = {"design": cfg.name, **report, "memory_model_class": MEMORY_MODEL_CLASS}
     if simulate_cycles > 0:
         sim = simulate(cfg, wl, cycles=min(int(simulate_cycles), 200_000), seed=seed,
                        freq_mhz=report["freq_mhz"], trace_cycles=min(int(trace_cycles), 400))
@@ -1198,7 +1247,8 @@ def create_mcp_server() -> MCPServer:
     for fn in (chip_quickstart, chip_list_templates, chip_get_design, chip_validate_design,
                chip_estimate_cost, chip_cost_references, chip_price_lookup_plan,
                chip_analyze_bottleneck, chip_get_results, search, fetch,
-               get_digital_twin_run, list_ip_catalog, list_pdk_ladder, list_private_pdks):
+               get_digital_twin_run, list_ip_catalog, list_pdk_ladder, list_private_pdks,
+               simulate_ecore_array):
         mcp.tool(annotations=read_only)(fn)
     for fn in (chip_design_from_template, chip_create_design, chip_evaluate,
                chip_run_simulation, chip_sweep_parameters, chip_compare_designs,

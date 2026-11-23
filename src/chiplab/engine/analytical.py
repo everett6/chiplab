@@ -144,8 +144,11 @@ def run_analytical_simulation(
     estimates; not cycle-accurate.".
     """
     run_id = f"analytical_{design_id}_{int(time.time())}"
-    assumptions: list[AssumptionRecord] = []
-    warnings: list[str] = []
+    from chiplab.backends.ecore import apply_ecore_to_design
+    # PIM chiplets with a compute.ecore block take their numbers from Echo Lab's eCore.
+    design, ecore_records, ecore_warnings = apply_ecore_to_design(design)
+    assumptions: list[AssumptionRecord] = list(ecore_records)
+    warnings: list[str] = list(ecore_warnings)
 
     total_chiplets = sum(c.count for c in design.chiplets)
 
@@ -423,6 +426,11 @@ def run_analytical_simulation(
         "Level 1 analytical model: theoretical roofline and first-order estimates; "
         "not cycle-accurate."
     )
+    if ecore_records:
+        fidelity_disclaimer += (
+            " PIM chiplet compute rate, energy/op and power come from Echo Lab eCore array "
+            "simulations (SPICE-calibrated with generic, non-PDK models); the package-level "
+            "result remains analytical.")
 
     result = SimulationResult(
         run_id=run_id,
@@ -436,7 +444,7 @@ def run_analytical_simulation(
         bottleneck=bottleneck,
         assumptions=assumptions,
         warnings=warnings,
-        raw_details={},
+        raw_details=({"ecore": design.metadata["ecore_provenance"]} if ecore_records else {}),
         success=True,
     )
 

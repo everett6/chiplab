@@ -86,32 +86,28 @@ class TestValidateDesign:
     """Test validate_design with various designs."""
 
     def test_valid_echo_v0_1(self):
-        """Validate echo_v0_1.yaml design.
-        
-        Note: The PIM chiplet in echo_v0_1 has capacity_per_chiplet_gb=0.0,
-        which is correctly flagged as invalid by the validator (capacity must be positive).
-        """
+        """echo_v0_1.yaml is valid: its PIM chiplet is a memoryless compute chiplet."""
         with open("/home/everett/Chip Lab/projects/echo/echo_v0_1.yaml") as f:
-            data = yaml.safe_load(f)
-        design = DesignSpec.from_yaml(yaml.dump(data))
+            design = DesignSpec.from_yaml(f.read())
         result = validate_design(design, allow_estimated_defaults=True)
-        # PIM chiplet has capacity_per_chiplet_gb=0.0 which is invalid
-        assert result.valid == False
-        assert any("capacity_per_chiplet_gb must be positive" in e for e in result.errors)
+        assert result.valid, result.errors
+        pim = next(c for c in design.chiplets if c.id == "pim_0")
+        assert pim.memory is None and pim.compute is not None
 
     def test_valid_echo_v0_1_with_defaults_false(self):
-        """Validate echo_v0_1.yaml design with allow_estimated_defaults=False.
-        
-        Note: The PIM chiplet in echo_v0_1 has capacity_per_chiplet_gb=0.0,
-        which is also invalid with allow_estimated_defaults=False since capacity
-        must be positive regardless of the defaults flag.
-        """
         with open("/home/everett/Chip Lab/projects/echo/echo_v0_1.yaml") as f:
-            data = yaml.safe_load(f)
-        design = DesignSpec.from_yaml(yaml.dump(data))
+            design = DesignSpec.from_yaml(f.read())
         result = validate_design(design, allow_estimated_defaults=False)
-        # PIM chiplet has capacity_per_chiplet_gb=0.0 which is invalid
-        assert result.valid == False
+        assert result.valid, result.errors
+
+    def test_explicit_zero_capacity_is_rejected(self):
+        """A memory block that says 0 GB is an error; omit `memory:` for memoryless chiplets."""
+        design = DesignSpec(name="zero_cap", package=PackageSpec(type="chiplets"), chiplets=[
+            ChipletSpec(id="pim", type="PIM", memory=MemorySpec(technology="pim",
+                                                                capacity_per_chiplet_gb=0.0),
+                        compute=ComputeSpec(architecture="pim", peak_tops=10.0))])
+        result = validate_design(design, allow_estimated_defaults=True)
+        assert not result.valid
         assert any("capacity_per_chiplet_gb must be positive" in e for e in result.errors)
 
     def test_monolithic_with_multiple_chiplets(self):
@@ -162,9 +158,7 @@ class TestValidateDesign:
         design = DesignSpec.from_yaml(yaml.dump(data))
         assert design.parent_version == "0.1"
         result = validate_design(design, allow_estimated_defaults=True)
-        # PIM chiplet has capacity_per_chiplet_gb=0.0 which is invalid
-        assert result.valid == False
-        assert any("capacity_per_chiplet_gb must be positive" in e for e in result.errors)
+        assert result.valid, result.errors
 
     def test_design_no_chiplets(self):
         """Design with no chiplets should fail."""

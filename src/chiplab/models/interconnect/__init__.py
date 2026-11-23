@@ -42,127 +42,34 @@ def estimate_interconnect(
     interconnect_spec = design.interconnect
     topology = interconnect_spec.topology
 
-    # Try to get component library defaults for the topology
+    # Values written in the design always win; component-library defaults for the topology
+    # only fill fields the design leaves unset (they used to replace the design's values).
     comp_defaults = get_component_defaults("interconnect", topology)
-
-    if comp_defaults is not None and allow_defaults:
-        # Use component library defaults
-        link_bw_gbps = comp_defaults["link_bandwidth_gbps"]
-        latency_ns = comp_defaults["latency_ns"]
-        energy_pj_per_bit = comp_defaults["energy_pj_per_bit"]
-        lanes_per_chiplet = comp_defaults["lanes_per_chiplet"]
-
-        assumptions.append(
-            AssumptionRecord(
-                parameter="topology",
-                value=topology,
-                unit="str",
-                provenance=Provenance.ASSUMED,
-                source="component_library",
-            )
-        )
-        assumptions.append(
-            AssumptionRecord(
-                parameter="link_bandwidth_gbps",
-                value=link_bw_gbps,
-                unit="GB/s",
-                provenance=Provenance.ASSUMED,
-                source="component_library",
-            )
-        )
-        assumptions.append(
-            AssumptionRecord(
-               parameter="latency_ns",
-                value=latency_ns,
-                unit="ns",
-                provenance=Provenance.ASSUMED,
-                source="component_library",
-            )
-        )
-        assumptions.append(
-            AssumptionRecord(
-                parameter="energy_pj_per_bit",
-                value=energy_pj_per_bit,
-                unit="pJ/bit",
-                provenance=Provenance.ASSUMED,
-                source="component_library",
-            )
-        )
-        assumptions.append(
-            AssumptionRecord(
-                parameter="lanes_per_chiplet",
-                value=lanes_per_chiplet,
-                unit="count",
-                provenance=Provenance.ASSUMED,
-                source="component_library",
-            )
-        )
-    elif comp_defaults is not None and not allow_defaults:
-        warnings.append(
-            f"Using component library defaults for {topology} interconnect despite allow_defaults=False"
-        )
-        link_bw_gbps = comp_defaults["link_bandwidth_gbps"]
-        latency_ns = comp_defaults["latency_ns"]
-        energy_pj_per_bit = comp_defaults["energy_pj_per_bit"]
-        lanes_per_chiplet = comp_defaults["lanes_per_chiplet"]
-    else:
-        # No component defaults found; try to use design spec values
-        link_bw_gbps = interconnect_spec.link_bandwidth_gbps
-        latency_ns = interconnect_spec.latency_ns
-        energy_pj_per_bit = interconnect_spec.energy_pj_per_bit
-        lanes_per_chiplet = interconnect_spec.lanes_per_chiplet
-
-        if link_bw_gbps is not None:
-            assumptions.append(
-                AssumptionRecord(
-                    parameter="link_bandwidth_gbps",
-                    value=link_bw_gbps,
-                    unit="GB/s",
-                    provenance=Provenance.MEASURED,
-                    source="design_spec",
-                )
-            )
-        if latency_ns is not None:
-            assumptions.append(
-                AssumptionRecord(
-                    parameter="latency_ns",
-                    value=latency_ns,
-                    unit="ns",
-                    provenance=Provenance.MEASURED,
-                    source="design_spec",
-                )
-            )
-        if energy_pj_per_bit is not None:
-            assumptions.append(
-                AssumptionRecord(
-                    parameter="energy_pj_per_bit",
-                    value=energy_pj_per_bit,
-                    unit="pJ/bit",
-                    provenance=Provenance.MEASURED,
-                    source="design_spec",
-                )
-            )
-        if lanes_per_chiplet is not None:
-            assumptions.append(
-                AssumptionRecord(
-                    parameter="lanes_per_chiplet",
-                    value=lanes_per_chiplet,
-                    unit="count",
-                    provenance=Provenance.MEASURED,
-                    source="design_spec",
-                )
-            )
-
-        # If still missing, add warnings
-        if link_bw_gbps is None:
-            warnings.append("link_bandwidth_gbps not specified")
-        if latency_ns is None:
-            warnings.append("latency_ns not specified")
-        if energy_pj_per_bit is None:
-            warnings.append("energy_pj_per_bit not specified")
-        if lanes_per_chiplet is None:
-            lanes_per_chiplet = 1
-            warnings.append("lanes_per_chiplet not specified, defaulting to 1")
+    units = {"link_bandwidth_gbps": "GB/s", "latency_ns": "ns", "energy_pj_per_bit": "pJ/bit",
+             "lanes_per_chiplet": "count"}
+    resolved: dict[str, Any] = {}
+    for field_name, unit in units.items():
+        value = getattr(interconnect_spec, field_name, None)
+        if value is not None:
+            resolved[field_name] = value
+            assumptions.append(AssumptionRecord(
+                parameter=field_name, value=value, unit=unit,
+                provenance=Provenance.MEASURED, source="design_spec"))
+        elif comp_defaults is not None and field_name in comp_defaults:
+            resolved[field_name] = comp_defaults[field_name]
+            if not allow_defaults:
+                warnings.append(f"{field_name} missing; using the {topology} component default "
+                                "despite allow_defaults=False")
+            assumptions.append(AssumptionRecord(
+                parameter=field_name, value=comp_defaults[field_name], unit=unit,
+                provenance=Provenance.ASSUMED, source="component_library"))
+        else:
+            resolved[field_name] = None
+            warnings.append(f"{field_name} not specified")
+    link_bw_gbps = resolved["link_bandwidth_gbps"]
+    latency_ns = resolved["latency_ns"]
+    energy_pj_per_bit = resolved["energy_pj_per_bit"]
+    lanes_per_chiplet = resolved["lanes_per_chiplet"] or 1
 
     # Determine per-link bandwidth
     per_link_bw_gbps = float(link_bw_gbps) if link_bw_gbps is not None else 0.0

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -18,6 +18,22 @@ class MemorySpec(BaseModel):
     stack_layers: ParamInt = 1
 
 
+class EcoreArraySpec(BaseModel):
+    """Take a PIM / analog-CIM chiplet's compute rate, energy/op and power (and area when
+    ``arrays`` is set) from Echo Lab's eCore array simulator instead of hand-entered numbers."""
+
+    rows: int = Field(64, ge=8, le=1024)
+    cols: int = Field(64, ge=8, le=1024)
+    precision: Literal["int4", "int8", "fp8_e4m3", "fp8_e5m2", "fp16"] = "int8"
+    adc_bits: Literal[4, 6, 8, 10, 12] = 8
+    organization: Literal["org_a", "org_b"] = "org_b"
+    arrays: int | None = Field(None, ge=1, description=(
+        "Arrays per chiplet. If omitted, derived from area_mm2 x array_area_fraction."))
+    array_area_fraction: float = Field(0.6, gt=0.0, le=1.0, description=(
+        "Share of die area occupied by eCore arrays (rest: periphery, I/O). Assumed."))
+    seed: int = Field(42, ge=0, lt=2**31)
+
+
 class ComputeSpec(BaseModel):
     architecture: str
     precision: str = "INT8"
@@ -26,6 +42,7 @@ class ComputeSpec(BaseModel):
     mac_units: ParamInt | None = None
     sram_mb: ParamFloat | None = None
     efficiency_factor: ParamFloat | None = None
+    ecore: EcoreArraySpec | None = None
 
 
 class ChipletSpec(BaseModel):

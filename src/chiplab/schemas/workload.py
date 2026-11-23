@@ -120,9 +120,11 @@ def expand_workload_operators(workload: WorkloadSpec) -> List[OperatorSpec]:
                 OperatorSpec(
                     name="moe_expert_compute",
                     op_type="matrix_multiply",
-                    flops=workload.flops / max(workload.active_experts, 1),
-                    bytes_read=workload.bytes_read / max(workload.active_experts, 1),
-                    bytes_write=workload.bytes_write / max(workload.active_experts, 1),
+                    # workload.flops/bytes are totals for the step: all active experts
+                    # together (dividing by active_experts used to drop work).
+                    flops=workload.flops,
+                    bytes_read=workload.bytes_read,
+                    bytes_write=workload.bytes_write,
                     preferred_chiplet_type="systolic_array",
                     parallelism=float(workload.active_experts),
                 )

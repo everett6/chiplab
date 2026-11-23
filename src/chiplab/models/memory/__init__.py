@@ -35,7 +35,7 @@ def estimate_memory_chiplet(
         # Use provided memory spec values
         capacity_gb = float(mem_spec.capacity_per_chiplet_gb) * chiplet.count
         channels = int(mem_spec.channels) * chiplet.count
-        banks_per_channel = int(mem_spec.banks_per_channel) * chiplet.count
+        banks_per_channel = int(mem_spec.banks_per_channel)  # per channel; not scaled
         bandwidth_per_channel_gbps = (
             float(mem_spec.bandwidth_per_channel_gbps) if mem_spec.bandwidth_per_channel_gbps else None
         )
@@ -182,8 +182,9 @@ def estimate_memory_chiplet(
                 f"power_watts not in chiplet spec, estimated as {power_watts_raw:.1f} W based on capacity"
             )
 
-        # Assign to the variable names used in the result
-        capacity_gb = capacity_per_gb
+        # Library defaults are per instance; scale like the explicit-spec path.
+        capacity_gb = capacity_per_gb * chiplet.count
+        channels = channels * chiplet.count if channels is not None else None
 
     # Compute aggregate bandwidth in TB/s
     if bandwidth_per_channel_gbps is not None and channels is not None:

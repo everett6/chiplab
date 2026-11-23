@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
@@ -152,7 +154,8 @@ def estimate_packaging(
     # area_cm2 = area_mm2 / 100
     area_cm2 = total_area_mm2 / 100.0
     if defect_density_per_cm2 is not None and defect_density_per_cm2 > 0:
-        yield_pct = (1.0 - __import__("math").exp(-defect_density_per_cm2 * area_cm2)) * 100.0
+        # P(zero defects) under Poisson; 1 - exp(...) would be P(at least one defect).
+        yield_pct = math.exp(-defect_density_per_cm2 * area_cm2) * 100.0
     else:
         yield_pct = 100.0
 

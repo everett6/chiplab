@@ -59,7 +59,10 @@ def estimate_compute_chiplet(
         # Determine precision and scaling factor
         precision = comp_spec.precision or "INT8"
         scaling_factor = PRECISION_SCALING.get(precision, 1.0)
-        if precision not in PRECISION_SCALING:
+        if comp_spec.ecore is not None:
+            # eCore reports TOPS at the array's native precision: no INT8-relative scaling.
+            scaling_factor = 1.0
+        elif precision not in PRECISION_SCALING:
             warnings.append(
                 f"Unknown precision '{precision}', defaulting to scaling factor 1.0 (INT8)"
             )
@@ -79,8 +82,9 @@ def estimate_compute_chiplet(
                     parameter="peak_tops",
                     value=peak_tops_raw,
                     unit="TOPS",
-                    provenance=Provenance.MEASURED,
-                    source="chiplet_spec",
+                    provenance=(Provenance.ESTIMATED if comp_spec.ecore is not None
+                                else Provenance.MEASURED),
+                    source="ecore" if comp_spec.ecore is not None else "chiplet_spec",
                 )
             )
         if clock_ghz is not None:

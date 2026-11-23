@@ -35,9 +35,8 @@ design:
       area_mm2: 250.0
       tdp_watts: 20.0
       process_nm: 28
-      memory:
-        technology: "processing_in_memory"
-        capacity_per_chiplet_gb: 0.0
+      # No `memory:` block: ChipLab treats this as a compute chiplet. Its in-array storage
+      # is not separately modeled here (it used to say capacity 0, which the validator rejects).
       compute:
         architecture: "processing_in_memory"
         precision: "INT8"

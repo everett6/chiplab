@@ -13,7 +13,17 @@ ChipLab consists of the following major components:
 
 ### Engine Layer (`src/chiplab/engine/`)
 - **Analytical**: Level 1 roofline model simulation with fidelity `FidelityLevel.ANALYTICAL`
-- **Discrete-Event**: Level 2 SimPy-based simulation with fidelity `FidelityLevel.DISCRETE_EVENT`
+- **Discrete-Event**: Level 2 tile-level discrete-event simulation (`FidelityLevel.DISCRETE_EVENT`,
+  heap-driven, no SimPy). Each request runs the workload's operators in order; each operator
+  is split into tiles (>= 4 KiB or 1 MFLOP, <= 256) that queue FIFO for memory banks, memory
+  channels, interconnect links along the topology route (mesh XY, ring, crossbar/PCIe ports,
+  shared bus) and compute engines, one per chiplet instance. Requests run closed-loop, 4 in
+  flight. Tiles go to the engine with the earliest projected finish, so compute next to its
+  data wins unless it is overloaded. Bottleneck = the busiest resource class. On weight-
+  streaming decode with local memory it agrees with the roofline within 2%; it differs where
+  the roofline cannot see: chiplet links, uneven channel bandwidth, access/hop latency and
+  queueing. Not modeled: DRAM command timing, caches, cut-through flow control.
+  Area, power and cost come from the analytical models.
 - **Sweep**: Parameter sweep over design/workload parameters
 - **Analyzer**: Bottleneck analysis and result comparison
 
@@ -31,9 +41,11 @@ ChipLab consists of the following major components:
 - Save/get operations for all result types
 
 ### Backends (`src/chiplab/backends/`)
-- Scale simulation backend
-- Ramulator memory simulator
-- Accelerator simulator
+- Ramulator, SCALE-Sim and Accel-Sim are **detected only, not integrated**: `run()` raises
+  `NotImplementedError` even when the tool is installed, and `backend_status()` reports
+  installed / integrated / usable. Asking `chip_run_simulation` for `specialized` or
+  `rtl_circuit` runs the analytical model, labels the result `analytical` and says so in
+  `warnings`.
 
 ### YAML Design Files
 ChipLab uses YAML design specifications that can be loaded via `DesignSpec.from_yaml()`:
@@ -151,6 +163,40 @@ figure older than 180 days is marked stale. To refresh them:
 
 Overrides are stored in `~/.chiplab/prices.json` (or `CHIPLAB_PRICE_FILE`) and are shared by
 every client. `chip_clear_price` restores the built-in value.
+
+## GPU Studio (the 3D engineering view)
+
+`chiplab-app` now opens on **GPU Studio** (`/`); the agent feed and twin moved to `/live`.
+It renders the selected design as a 3D package (Three.js 0.170 from jsDelivr; needs WebGL):
+board with VRM phases, capacitors, PCIe traces and power connectors, BGA substrate,
+interposer with routes or silicon bridges, compute dies, HBM stacks (base die + DRAM dies,
+TSV columns, microbumps), heat spreader, finned heatsink and fans. Rotate, zoom and pan; click
+anything to inspect it, double-click to fly to it; explode the stack-up; switch realistic or
+wireframe; show or hide layers.
+
+Modes, all driven by simulator output (nothing decorative):
+
+| Mode | What drives it |
+|---|---|
+| 3D Assembly | placement and geometry from the design (`studio/scene.py`) |
+| Die Explorer | compute clusters / SRAM / PHY edges from mac_units and sram_mb; DRAM channels × banks × subarrays with sense-amp strips and the compute-in-memory region |
+| Memory Explorer | per-channel and per-bank traffic from the discrete-event run; HBM stacks expand into their dies |
+| Thermal | two-layer finite-volume package solve (`studio/thermal.py`): die-plane temperature map, hotspot, per-die stack temperatures, power-on transient you can play |
+| Power | analytical per-die power + link power (energy/bit × simulated traffic), VRM loss; flags dies with a large power share that are mostly idle |
+| Interconnect | simulated utilization of every link; packet rate and speed follow it |
+| Airflow | fan flow → fin-channel velocity → convection coefficient → heatsink resistance and air temperature rise |
+
+One design is the source of truth: the **Memory Packaging Studio** panel (stack count, dies
+per stack, capacity, channels, bandwidth, footprint, die/bond thickness, TSV and microbump
+pitch, spacing, interposer margin, temperature limits, fans, fins) and drag-to-move
+placement write to the design (in place, or as a new version), then every mode re-simulates.
+Edits are validated; invalid ones are rejected. When an MCP agent changes the open design,
+the studio reloads. The heatsink resistance comes from the airflow model unless the design
+sets `constraints.thermal_resistance_c_per_w`, which then wins (fan edits do not change
+temperatures in that case; the legend says which source is used).
+
+Not yet integrated: KiCad (board), Xschem/ngspice (circuits), KLayout (IC layout) and
+OpenFOAM (CFD). The thermal and airflow models are first-order engineering models, not CFD.
 
 ## ChipLab Live (watch agents design in real time)
 
