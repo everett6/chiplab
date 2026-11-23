@@ -1,0 +1,857 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ChipLab Live</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --panel-2: #f0f2f5; --line: #dfe3e8;
+  --text: #17202b; --muted: #5d6b7a; --faint: #8a96a3;
+  --accent: #2563eb; --accent-soft: #dbe7ff;
+  --logic: #3b6fd8; --memory: #0f9f8f; --io: #8a96a3; --bb: #c2410c;
+  --ok: #15803d; --warn: #b45309; --bad: #c02631;
+  --c1: #2563eb; --c2: #0f9f8f; --c3: #c2410c; --c4: #7c3aed; --c5: #b45309; --c6: #64748b; --c7: #db2777;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1117; --panel: #151b23; --panel-2: #1c242e; --line: #2a3441;
+    --text: #e6edf3; --muted: #9aa7b4; --faint: #6e7b88;
+    --accent: #6ea0ff; --accent-soft: #1d2d4d;
+    --logic: #6ea0ff; --memory: #2cc5b2; --io: #7d8a97; --bb: #f08a4b;
+    --ok: #3fb960; --warn: #e3a33b; --bad: #f2555f;
+    --c1: #6ea0ff; --c2: #2cc5b2; --c3: #f08a4b; --c4: #a78bfa; --c5: #e3a33b; --c6: #94a3b8; --c7: #f472b6;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--text); font: 14px/1.45 var(--sans); }
+header { display: flex; align-items: center; gap: 16px; padding: 10px 18px; border-bottom: 1px solid var(--line);
+  background: var(--panel); position: sticky; top: 0; z-index: 5; flex-wrap: wrap; }
+header h1 { font-size: 16px; margin: 0; letter-spacing: .2px; }
+header h1 span { color: var(--accent); }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--faint); display: inline-block; }
+.dot.on { background: var(--ok); box-shadow: 0 0 0 0 var(--ok); animation: pulse 2s infinite; }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 60%, transparent); }
+  70% { box-shadow: 0 0 0 7px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+.stat { color: var(--muted); font-size: 13px; }
+.stat b { color: var(--text); font-family: var(--mono); font-weight: 600; }
+.tabs { display: flex; gap: 4px; margin-left: auto; }
+.tab { border: 1px solid var(--line); background: var(--panel-2); color: var(--muted); padding: 5px 12px;
+  border-radius: 999px; cursor: pointer; font: inherit; font-size: 13px; }
+.tab.active { background: var(--accent-soft); color: var(--accent); border-color: transparent; font-weight: 600; }
+label.toggle { display: flex; gap: 6px; align-items: center; color: var(--muted); font-size: 13px; cursor: pointer; }
+main { display: grid; grid-template-columns: 360px 1fr; gap: 16px; padding: 16px; min-height: calc(100% - 56px); }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; padding: 12px 16px; } }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+.panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 0;
+  padding: 12px 14px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }
+#feed { max-height: calc(100vh - 120px); overflow: auto; }
+@media (max-width: 900px) { #feed { max-height: 360px; } }
+.ev { padding: 10px 14px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.ev:hover { background: var(--panel-2); }
+.ev.new { animation: flash 1.6s ease-out; }
+@keyframes flash { from { background: var(--accent-soft); } to { background: transparent; } }
+.ev .top { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--faint); }
+.chip { font-size: 11px; padding: 1px 7px; border-radius: 999px; font-weight: 600; color: #fff; white-space: nowrap; }
+.ev .tool { font-family: var(--mono); font-size: 13px; margin-top: 3px; }
+.ev .tool .target { color: var(--muted); }
+.ev .sum { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+.ev.err .sum { color: var(--bad); }
+.empty { padding: 28px 16px; color: var(--muted); text-align: center; }
+.empty code { font-family: var(--mono); background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
+.stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.row { display: grid; grid-template-columns: 1.1fr 1fr; gap: 16px; }
+@media (max-width: 1200px) { .row { grid-template-columns: 1fr; } }
+.pad { padding: 14px; }
+.title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.title h3 { margin: 0; font-size: 20px; }
+.badge { font-size: 11.5px; padding: 2px 8px; border-radius: 6px; background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); }
+.badge.ok { color: var(--ok); } .badge.bad { color: var(--bad); } .badge.warn { color: var(--warn); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.tile { background: var(--panel-2); border-radius: 8px; padding: 10px 12px; }
+.tile .k { font-size: 11.5px; color: var(--muted); }
+.tile .v { font-family: var(--mono); font-size: 19px; font-weight: 600; margin-top: 2px; }
+.tile .s { font-size: 11.5px; color: var(--faint); font-family: var(--mono); }
+svg text { fill: var(--text); font-family: var(--sans); }
+.axis text { fill: var(--muted); font-size: 11px; }
+.axis line, .axis path { stroke: var(--line); }
+.legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 8px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; color: var(--muted); font-weight: 500; font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+td { padding: 6px 8px; border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: 12.5px; }
+td.txt { font-family: var(--sans); }
+tr.sel td { background: var(--accent-soft); }
+tbody tr { cursor: pointer; }
+.warns { margin: 0; padding-left: 18px; color: var(--warn); font-size: 13px; }
+.warns li { margin: 3px 0; }
+select { font: inherit; font-size: 13px; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
+.controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); }
+.bar { height: 8px; border-radius: 4px; background: var(--accent); }
+.barbg { background: var(--panel-2); border-radius: 4px; flex: 1; }
+.sens { display: grid; grid-template-columns: 130px 1fr 52px; gap: 8px; align-items: center; font-size: 12.5px; margin: 6px 0; }
+.sens .n { font-family: var(--mono); }
+.sens .prov { font-size: 11px; color: var(--faint); }
+.tip { position: fixed; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 10px; font-size: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.15); z-index: 10; display: none; max-width: 280px; }
+.tip b { font-family: var(--mono); }
+.hidden { display: none !important; }
+.list .item { padding: 8px 14px; border-bottom: 1px solid var(--line); cursor: pointer; display: flex; justify-content: space-between; gap: 8px; }
+.list .item:hover { background: var(--panel-2); }
+.list .item.sel { background: var(--accent-soft); }
+.list .item .m { color: var(--muted); font-size: 12px; font-family: var(--mono); text-align: right; }
+.disclaimer { font-size: 12px; color: var(--faint); }
+.form { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px 14px; }
+.form label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+.form label .val { font-family: var(--mono); color: var(--text); font-size: 12px; }
+.form input[type=range] { width: 100%; accent-color: var(--accent); }
+.form select, .form input[type=number] { width: 100%; }
+input[type=number] { font: inherit; font-size: 13px; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
+.btn { border: 1px solid var(--line); background: var(--panel-2); color: var(--text); padding: 6px 12px; border-radius: 8px;
+  cursor: pointer; font: inherit; font-size: 13px; }
+.btn.primary { background: var(--accent); color: #fff; border-color: transparent; font-weight: 600; }
+.btn:disabled { opacity: .55; cursor: progress; }
+.btnrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+.err { color: var(--bad); font-size: 13px; margin-top: 8px; white-space: pre-wrap; }
+.code { margin: 0; padding: 12px 14px; max-height: 460px; overflow: auto; background: var(--panel-2); border-radius: 8px;
+  font: 12px/1.5 var(--mono); white-space: pre; tab-size: 2; }
+.ftabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 10px; }
+.ftabs .tab { font-family: var(--mono); font-size: 12px; }
+.cmp { display: grid; grid-template-columns: 1fr auto auto; gap: 4px 14px; font-size: 12.5px; }
+.cmp .h { color: var(--muted); font-size: 11.5px; }
+.cmp span { font-family: var(--mono); }
+.subtle { color: var(--faint); font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1><span>◆</span> ChipLab Live</h1>
+  <span class="dot" id="conn" title="Live connection"></span>
+  <span class="stat">agents active <b id="s-agents">0</b></span>
+  <span class="stat">designs <b id="s-designs">0</b></span>
+  <span class="stat">evaluations <b id="s-evals">0</b></span>
+  <span class="stat">twin runs <b id="s-twins">0</b></span>
+  <span class="stat" id="s-prices"></span>
+  <div class="tabs">
+    <button class="tab active" data-view="designs">Designs</button>
+    <button class="tab" data-view="twin">Digital twin</button>
+    <button class="tab" data-view="lab">Lab · simulate</button>
+  </div>
+  <label class="toggle"><input type="checkbox" id="follow" checked> Follow live</label>
+</header>
+
+<main>
+  <section class="panel">
+    <h2>Agent activity <span id="feed-count"></span></h2>
+    <div id="feed"><div class="empty">Waiting for agents…<br><br>Ask Claude Code, Codex, Gemini or ChatGPT to use <code>chiplab</code>; every tool call shows up here.</div></div>
+  </section>
+
+  <section class="stack" id="view-designs">
+    <div class="panel pad" id="design-empty"><div class="empty">No design selected yet. Pick one from the list below or wait for an agent to create one.</div></div>
+    <div id="design" class="stack hidden">
+      <div class="panel pad">
+        <div class="title"><h3 id="d-name"></h3><span class="badge" id="d-ver"></span><span class="badge" id="d-valid"></span><span class="badge" id="d-pkg"></span><span class="stat" id="d-by"></span></div>
+        <div class="stat" id="d-desc" style="margin-top:4px"></div>
+        <div class="tiles" id="d-tiles" style="margin-top:12px"></div>
+      </div>
+      <div class="row">
+        <div class="panel"><h2>Package floorplan <span class="stat" id="fp-note"></span></h2><div class="pad"><svg id="floorplan" width="100%" viewBox="0 0 560 360" role="img" aria-label="Package floorplan"></svg>
+          <div class="legend"><span><i style="background:var(--logic)"></i>logic die</span><span><i style="background:var(--memory)"></i>memory</span><span><i style="background:var(--io)"></i>package/interposer</span></div></div></div>
+        <div class="panel"><h2>Unit cost <span class="stat" id="cost-range"></span></h2><div class="pad">
+          <svg id="costbar" width="100%" viewBox="0 0 520 70" role="img" aria-label="Cost breakdown"></svg>
+          <div class="legend" id="cost-legend"></div>
+          <table style="margin-top:12px"><thead><tr><th>Chiplet</th><th>Node / tech</th><th>Area</th><th>Yield</th><th>$ each</th><th>×</th></tr></thead><tbody id="chiplets"></tbody></table>
+        </div></div>
+      </div>
+      <div class="panel"><h2>Simulate this design <span class="controls"><select id="ds-wl"><option value="">no workload (peak only)</option><option value="llm70" selected>LLM decode · 70B · batch 8</option><option value="llm8">LLM decode · 8B · batch 32</option><option value="prefill">LLM prefill · 70B · 2k tokens</option></select><button class="btn" id="ds-ana">Analytical</button><button class="btn" id="ds-de">Discrete-event</button></span></h2>
+        <div class="pad"><div class="subtle" id="ds-note">Runs the design through ChipLab's engine right here (results are not saved).</div><div class="tiles" id="ds-tiles" style="margin-top:10px"></div><div class="err" id="ds-err"></div></div></div>
+      <div class="panel pad" id="warn-panel"><h2 style="padding:0 0 8px;border:0">Warnings &amp; checks</h2><ul class="warns" id="warns"></ul></div>
+    </div>
+    <div class="panel"><h2>All designs</h2><div class="list" id="designs"></div></div>
+  </section>
+
+  <section class="stack hidden" id="view-twin">
+    <div class="panel pad" id="twin-empty"><div class="empty">No digital-twin runs yet. Ask an agent to call <code>run_digital_twin_search</code>.</div></div>
+    <div id="twin" class="stack hidden">
+      <div class="panel pad">
+        <div class="title"><h3 id="t-id"></h3><span class="badge" id="t-strat"></span><span class="stat" id="t-meta"></span></div>
+        <div class="tiles" id="t-tiles" style="margin-top:12px"></div>
+        <div class="disclaimer" id="t-disc" style="margin-top:10px"></div>
+      </div>
+      <div class="panel"><h2>Design space <span class="controls">x <select id="ax-x"></select> y <select id="ax-y"></select> colour <select id="ax-c"><option value="node">node</option><option value="front">Pareto front</option><option value="gen">generation</option></select></span></h2>
+        <div class="pad"><svg id="scatter" width="100%" viewBox="0 0 760 420" role="img" aria-label="Design-space scatter"></svg><div class="legend" id="sc-legend"></div></div></div>
+      <div class="row">
+        <div class="panel"><h2>Top-K robust Pareto designs</h2><div class="pad" style="overflow:auto"><table><thead id="top-head"></thead><tbody id="top-body"></tbody></table></div></div>
+        <div class="panel"><h2>Sensitivity to unknowns</h2><div class="pad" id="sens"></div></div>
+      </div>
+    </div>
+    <div class="panel"><h2>Twin runs</h2><div class="list" id="twinruns"></div></div>
+  </section>
+  <section class="stack hidden" id="view-lab">
+    <div class="panel"><h2>On-chip memory simulator <span class="subtle">SRAM vs gain-cell eDRAM · cycle-accurate</span></h2>
+      <div class="pad">
+        <div class="form" id="mem-form"></div>
+        <div class="btnrow"><button class="btn primary" id="mem-run">Run simulation</button>
+          <button class="btn" id="mem-play" disabled>⏸ Pause</button><button class="btn" id="mem-step" disabled>Step ›</button>
+          <label class="toggle">speed <input type="range" id="mem-speed" min="1" max="60" value="12" style="width:90px"></label>
+          <button class="btn" id="mem-rtl">Generate RTL</button><span class="subtle" id="mem-status"></span></div>
+        <div class="err" id="mem-err"></div>
+      </div>
+    </div>
+    <div id="mem-out" class="stack hidden">
+      <div class="panel pad"><div class="tiles" id="mem-tiles"></div><div class="disclaimer" id="mem-disc" style="margin-top:10px"></div></div>
+      <div class="row">
+        <div class="panel"><h2>Live bank activity <span class="stat" id="mem-cyc"></span></h2><div class="pad">
+          <svg id="mem-anim" width="100%" viewBox="0 0 760 400" role="img" aria-label="Requesters and memory banks, animated per cycle"></svg>
+          <div class="legend" id="mem-legend"></div></div></div>
+        <div class="stack">
+          <div class="panel"><h2>Model vs simulation</h2><div class="pad"><div class="cmp" id="mem-cmp"></div></div></div>
+          <div class="panel"><h2>Over the whole run</h2><div class="pad"><svg id="mem-tl" width="100%" viewBox="0 0 520 230" role="img" aria-label="Throughput and stalls over time"></svg><div class="legend" id="tl-legend"></div></div></div>
+          <div class="panel pad"><h2 style="padding:0 0 8px;border:0">Warnings</h2><ul class="warns" id="mem-warns"></ul></div>
+        </div>
+      </div>
+      <div class="panel hidden" id="rtl-panel"><h2>Generated SystemVerilog <span class="controls"><span id="rtl-lint"></span><button class="btn" id="rtl-dl">Download file</button></span></h2>
+        <div class="pad"><div class="ftabs" id="rtl-tabs"></div><pre class="code" id="rtl-code"></pre>
+        <div class="subtle" style="margin-top:8px">Structural lint runs in ChipLab; run <code>bash run_verilator.sh</code> with Verilator 5 for full elaboration and the self-checking testbench. The bitcell macro is a simulation model (OpenRAM / SPICE needed for silicon).</div></div></div>
+    </div>
+    <div class="panel"><h2>Design-point simulator <span class="subtle">digital twin · updates as you drag</span></h2>
+      <div class="pad"><div class="form" id="pt-form"></div>
+        <div class="tiles" id="pt-tiles" style="margin-top:14px"></div>
+        <div class="btnrow"><button class="btn primary" id="pt-search">Search around this point (NSGA-II + Monte Carlo)</button><span class="subtle" id="pt-status"></span></div>
+        <div class="err" id="pt-err"></div></div></div>
+  </section>
+</main>
+
+<div class="tip" id="tip"></div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt = (v, d = 1) => v == null || Number.isNaN(v) ? "–" : Math.abs(v) >= 1000 ? Math.round(v).toLocaleString() : (+v).toFixed(d);
+const usd = (v) => v == null ? "–" : "$" + (v >= 100 ? Math.round(v).toLocaleString() : (+v).toFixed(2));
+const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const PALETTE = ["--c1","--c2","--c3","--c4","--c5","--c6","--c7"];
+const clientColor = (name) => { let h = 0; for (const c of String(name || "?")) h = (h * 31 + c.charCodeAt(0)) >>> 0; return css(PALETTE[h % PALETTE.length]); };
+const ago = (ts) => { const s = Date.now() / 1000 - ts; return s < 60 ? `${Math.max(0, Math.round(s))}s ago` : s < 3600 ? `${Math.round(s / 60)}m ago` : new Date(ts * 1000).toLocaleTimeString(); };
+const api = (p) => fetch(p).then((r) => r.json());
+
+const state = { view: "designs", design: null, twin: null, lastId: 0, events: [], twinData: null, selRank: null };
+
+// ---------- tabs ----------
+document.querySelectorAll(".tab").forEach((b) => b.onclick = () => setView(b.dataset.view));
+function setView(v) {
+  state.view = v;
+  document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("active", b.dataset.view === v));
+  $("view-designs").classList.toggle("hidden", v !== "designs");
+  $("view-twin").classList.toggle("hidden", v !== "twin");
+  $("view-lab").classList.toggle("hidden", v !== "lab");
+  if (v === "twin") loadTwinRuns();
+  if (v === "lab") initLab();
+}
+
+// ---------- feed ----------
+function renderEvent(e, fresh) {
+  const div = document.createElement("div");
+  div.className = "ev" + (e.ok ? "" : " err") + (fresh ? " new" : "");
+  const target = e.design_id || e.run_id || "";
+  div.innerHTML = `<div class="top"><span class="chip" style="background:${clientColor(e.client)}">${esc(e.client || "agent")}</span><span>${ago(e.ts)}</span><span>${fmt(e.duration_ms, 0)} ms</span></div>
+    <div class="tool">${esc(e.tool)} <span class="target">${esc(target)}</span></div>${e.summary ? `<div class="sum">${esc(e.summary)}</div>` : ""}`;
+  div.onclick = () => openTarget(e);
+  return div;
+}
+function openTarget(e) {
+  if (e.tool === "run_digital_twin_search" && e.run_id) { setView("twin"); loadTwin(e.run_id); }
+  else if (e.design_id) { setView("designs"); loadDesign(e.design_id); }
+}
+function addEvents(list, fresh) {
+  if (!list.length) return;
+  const feed = $("feed");
+  if (!state.events.length) feed.innerHTML = "";
+  for (const e of list) {
+    state.lastId = Math.max(state.lastId, e.id);
+    state.events.push(e);
+    feed.prepend(renderEvent(e, fresh));
+  }
+  while (feed.children.length > 300) feed.lastChild.remove();
+  $("feed-count").textContent = state.events.length;
+}
+
+function connect() {
+  const es = new EventSource(`/api/stream?after=${state.lastId}`);
+  es.onopen = () => $("conn").classList.add("on");
+  es.onerror = () => $("conn").classList.remove("on");
+  es.addEventListener("activity", (m) => {
+    const e = JSON.parse(m.data);
+    if (e.id <= state.lastId) return;
+    addEvents([e], true);
+    refreshStatus();
+    if (e.design_id || e.run_id) loadDesigns();
+    if ($("follow").checked && e.ok) {
+      if (e.tool === "run_digital_twin_search") { setView("twin"); loadTwin(e.run_id); }
+      else if (e.design_id && !e.tool.includes("price")) { if (state.view !== "designs") setView("designs"); loadDesign(e.design_id); }
+    } else if (state.design && e.design_id === state.design) loadDesign(state.design);
+  });
+}
+
+async function refreshStatus() {
+  const s = await api("/api/status");
+  $("s-agents").textContent = s.active_agents.length;
+  $("s-agents").title = s.active_agents.join(", ");
+  $("s-designs").textContent = s.designs;
+  $("s-evals").textContent = s.evaluations;
+  $("s-twins").textContent = s.twin_runs;
+  $("s-prices").innerHTML = s.prices.stale ? `prices <b style="color:var(--warn)">${s.prices.stale}</b> stale · ${s.prices.overrides} live` : `prices <b>fresh</b>`;
+}
+
+// ---------- designs ----------
+async function loadDesigns() {
+  const list = await api("/api/designs");
+  const el = $("designs");
+  el.innerHTML = list.length ? "" : `<div class="empty">No designs saved yet.</div>`;
+  for (const d of list) {
+    const it = document.createElement("div");
+    it.className = "item" + (d.design_id === state.design ? " sel" : "");
+    it.innerHTML = `<div><b>${esc(d.name)}</b> <span class="badge">v${esc(d.version)}</span><div class="stat">${esc(d.description || "")}</div></div><div class="m">${esc(d.summary || "not evaluated")}</div>`;
+    it.onclick = () => loadDesign(d.design_id);
+    el.append(it);
+  }
+  if (!state.design && list.length) loadDesign(list[0].design_id);
+}
+
+async function loadDesign(id) {
+  const d = await api(`/api/designs/${encodeURIComponent(id)}`);
+  if (d.error) return;
+  state.design = d.design_id;
+  $("design-empty").classList.add("hidden");
+  $("design").classList.remove("hidden");
+  const spec = d.spec, ev = d.evaluation, cost = d.cost || {};
+  $("d-name").textContent = spec.name;
+  $("d-ver").textContent = "v" + spec.version;
+  const valid = d.validation.valid;
+  $("d-valid").textContent = valid ? "valid" : `${d.validation.errors.length} errors`;
+  $("d-valid").className = "badge " + (valid ? "ok" : "bad");
+  $("d-pkg").textContent = cost.package_type || spec.package?.type || "";
+  $("d-by").textContent = ev ? `evaluated by ${d.evaluated_by || "agent"} · ${ago(d.evaluated_at)}` : "not evaluated yet (cost computed live)";
+  $("d-desc").textContent = spec.description || "";
+  const perf = ev?.performance || {}, pt = ev?.power_thermal || {}, eff = ev?.efficiency || {};
+  const tiles = [
+    ["Unit cost", usd(cost.unit_cost_usd), cost.range_usd ? `${usd(cost.range_usd.optimistic)} – ${usd(cost.range_usd.pessimistic)}` : ""],
+    ["Peak compute", perf.peak_compute_tops != null ? fmt(perf.peak_compute_tops, 0) + " TOPS" : "–", eff.usd_per_peak_tops != null ? `$${fmt(eff.usd_per_peak_tops, 2)}/TOPS` : ""],
+    ["Memory BW", perf.aggregate_memory_bandwidth_tbps != null ? fmt(perf.aggregate_memory_bandwidth_tbps, 2) + " TB/s" : "–", perf.total_memory_capacity_gb != null ? fmt(perf.total_memory_capacity_gb, 0) + " GB" : ""],
+    ["Throughput", perf.throughput_tokens_per_sec ? fmt(perf.throughput_tokens_per_sec, 0) + " tok/s" : "–", perf.estimated_latency_ms ? fmt(perf.estimated_latency_ms, 2) + " ms/step" : ""],
+    ["Power", pt.total_power_watts != null ? fmt(pt.total_power_watts, 0) + " W" : "–", eff.tops_per_watt != null ? `${fmt(eff.tops_per_watt, 2)} TOPS/W` : ""],
+    ["Temperature", pt.estimated_temp_c != null ? fmt(pt.estimated_temp_c, 0) + " °C" : "–", ev?.bottleneck?.primary_bottleneck || ev?.bottleneck?.bottleneck || ""],
+  ];
+  $("d-tiles").innerHTML = tiles.map(([k, v, s]) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${esc(s)}</div></div>`).join("");
+  drawFloorplan(cost);
+  drawCost(cost);
+  const warns = [...(d.validation.errors || []).map((w) => "✖ " + w), ...(cost.warnings || []),
+    ...((ev?.constraint_checks || []).filter((c) => !c.pass).map((c) => `${c.constraint}: ${fmt(c.actual, 1)} exceeds ${fmt(c.limit, 1)}`)),
+    ...(d.validation.warnings || []).slice(0, 6)];
+  $("warns").innerHTML = warns.length ? warns.map((w) => `<li>${esc(w)}</li>`).join("") : `<li style="color:var(--ok);list-style:none;margin-left:-18px">No warnings — every check passes.</li>`;
+  document.querySelectorAll("#designs .item").forEach((n) => n.classList.remove("sel"));
+  $("ds-tiles").innerHTML = ""; $("ds-err").textContent = "";
+}
+
+function drawFloorplan(cost) {
+  const svg = $("floorplan"), W = 560, H = 360;
+  const chips = cost.chiplets || [];
+  if (!chips.length) { svg.innerHTML = `<text x="${W/2}" y="${H/2}" text-anchor="middle">No chiplets</text>`; return; }
+  const logic = [], mem = [];
+  for (const c of chips) for (let i = 0; i < Math.min(c.count, 16); i++) (c.kind === "memory" ? mem : logic).push(c);
+  // Off-package DRAM has no footprint: draw it as a small part.
+  const area = (c) => Math.max(c.kind === "memory" ? (c.footprint_mm2 || 25) : c.area_mm2, 10);
+  // Lay out in mm, then scale to fit both width and height.
+  const cols = Math.max(1, Math.ceil(Math.sqrt(logic.length)));
+  const rows = Math.ceil(logic.length / cols);
+  const lw0 = logic.length ? Math.sqrt(area(logic[0])) : 0;
+  const g0 = Math.max(lw0 * 0.05, 1);
+  const gridW0 = cols * lw0 + (cols - 1) * g0, gridH0 = rows * lw0 + (rows - 1) * g0;
+  const left = mem.slice(0, Math.ceil(mem.length / 2)), right = mem.slice(Math.ceil(mem.length / 2));
+  let ms0 = mem.length ? Math.sqrt(area(mem[0])) : 0;
+  if (mem.length && gridH0) ms0 = Math.min(ms0, (gridH0 - (left.length - 1) * g0) / left.length);
+  const memH0 = left.length * ms0 + Math.max(left.length - 1, 0) * g0;
+  const totalW0 = gridW0 + (left.length ? ms0 + 2 * g0 : 0) + (right.length ? ms0 + 2 * g0 : 0);
+  const totalH0 = Math.max(gridH0, memH0);
+  const k = Math.min((W - 70) / Math.max(totalW0, 1e-6), (H - 70) / Math.max(totalH0, 1e-6));
+  const lw = lw0 * k, ms = ms0 * k, gap = g0 * k, gridW = gridW0 * k, gridH = gridH0 * k;
+  const totalW = totalW0 * k, totalH = totalH0 * k;
+  const x0 = (W - totalW) / 2, y0 = (H - totalH) / 2;
+  const pkg = `<rect x="${x0 - 22}" y="${y0 - 22}" width="${totalW + 44}" height="${totalH + 44}" rx="10" fill="none" stroke="${css("--io")}" stroke-width="1.5" stroke-dasharray="${/cowos|soic|emib/.test(cost.package_type || "") ? "0" : "5 4"}"/>`;
+  let out = pkg, x = x0;
+  const box = (bx, by, s, c, fill) => {
+    const label = c.kind === "memory" ? `${c.technology} ${fmt(c.capacity_gb, 0)}GB` : `${c.node.replace("TSMC ", "")} · ${fmt(c.area_mm2, 0)}mm²`;
+    return `<g class="die" data-tip="${esc(`${c.id}: ${label}${c.yield ? ` · yield ${(c.yield * 100).toFixed(1)}%` : ""} · ${usd(c.cost_per_good_die_usd ?? c.cost_per_part_usd)}`)}">
+      <rect x="${bx}" y="${by}" width="${s}" height="${s}" rx="4" fill="${fill}" fill-opacity=".18" stroke="${fill}" stroke-width="1.5"/>
+      ${s > 46 ? `<text x="${bx + s / 2}" y="${by + s / 2 - 2}" text-anchor="middle" font-size="${Math.min(13, s / 6)}" font-weight="600">${esc(c.id)}</text><text x="${bx + s / 2}" y="${by + s / 2 + 13}" text-anchor="middle" font-size="${Math.min(11, s / 7)}" fill="${css("--muted")}" style="fill:var(--muted)">${esc(label)}</text>` : ""}</g>`;
+  };
+  const my = (n) => y0 + (totalH - (n * ms + (n - 1) * gap)) / 2;
+  left.forEach((c, i) => out += box(x, my(left.length) + i * (ms + gap), ms, c, css("--memory")));
+  if (left.length) x += ms + 2 * gap;
+  const gy = y0 + (totalH - gridH) / 2;
+  logic.forEach((c, i) => out += box(x + (i % cols) * (lw + gap), gy + Math.floor(i / cols) * (lw + gap), lw, c, css("--logic")));
+  x += gridW + 2 * gap;
+  right.forEach((c, i) => out += box(x, my(right.length) + i * (ms + gap), ms, c, css("--memory")));
+  svg.innerHTML = out;
+  $("fp-note").textContent = `${cost.package_type || ""} · ${fmt(cost.package_area_mm2, 0)} mm²`;
+  bindTips(svg);
+}
+
+const COST_KEYS = [["logic_silicon", "Logic silicon", "--c1"], ["memory", "Memory", "--c2"], ["package", "Package", "--c3"], ["assembly_yield_loss", "Assembly loss", "--c4"], ["final_test", "Test", "--c6"], ["board", "Board", "--c5"], ["nre_amortized", "NRE / unit", "--c7"]];
+function drawCost(cost) {
+  const svg = $("costbar"), b = cost.breakdown_usd;
+  if (!b) { svg.innerHTML = `<text x="0" y="30">${esc(cost.error || "No cost data")}</text>`; $("chiplets").innerHTML = ""; return; }
+  const total = Object.values(b).reduce((s, v) => s + v, 0) || 1;
+  let x = 0, out = "";
+  for (const [k, label, col] of COST_KEYS) {
+    const w = (b[k] || 0) / total * 520;
+    if (w > 0.5) out += `<rect x="${x}" y="10" width="${Math.max(w - 2, 1)}" height="26" rx="3" fill="${css(col)}" data-tip="${esc(`${label}: ${usd(b[k])} (${((b[k] / total) * 100).toFixed(0)}%)`)}"/>`;
+    x += w;
+  }
+  if (cost.range_usd) {
+    const r = cost.range_usd, max = r.pessimistic || 1, px = (v) => v / max * 520;
+    out += `<line x1="${px(r.optimistic)}" x2="${px(r.pessimistic) - 1}" y1="52" y2="52" stroke="${css("--muted")}"/><circle cx="${px(r.typical)}" cy="52" r="4" fill="${css("--text")}"/>
+      <text x="${px(r.optimistic)}" y="67" font-size="10.5" style="fill:var(--muted)">${usd(r.optimistic)}</text><text x="${Math.min(px(r.pessimistic), 520)}" y="67" font-size="10.5" text-anchor="end" style="fill:var(--muted)">${usd(r.pessimistic)}</text>`;
+  }
+  svg.innerHTML = out;
+  bindTips(svg);
+  $("cost-range").textContent = `${usd(cost.unit_cost_usd)} typical · volume ${Number(cost.volume || 0).toLocaleString()}`;
+  $("cost-legend").innerHTML = COST_KEYS.filter(([k]) => b[k] > 0).map(([k, l, c]) => `<span><i style="background:var(${c})"></i>${l} ${usd(b[k])}</span>`).join("");
+  $("chiplets").innerHTML = (cost.chiplets || []).map((c) => `<tr><td class="txt">${esc(c.id)}</td><td>${esc(c.kind === "memory" ? c.technology : c.node)}</td><td>${c.kind === "memory" ? fmt(c.capacity_gb, 0) + " GB" : fmt(c.area_mm2, 0) + " mm²"}</td><td>${c.yield ? (c.yield * 100).toFixed(1) + "%" : "–"}</td><td>${usd(c.cost_per_good_die_usd ?? c.cost_per_part_usd)}</td><td>${c.count}</td></tr>`).join("");
+}
+
+// ---------- digital twin ----------
+async function loadTwinRuns() {
+  const runs = await api("/api/twin_runs");
+  const el = $("twinruns");
+  el.innerHTML = runs.length ? "" : `<div class="empty">No runs yet.</div>`;
+  for (const r of runs) {
+    const it = document.createElement("div");
+    it.className = "item" + (r.run_id === state.twin ? " sel" : "");
+    it.innerHTML = `<div><b style="font-family:var(--mono)">${esc(r.run_id)}</b> <span class="badge">${esc(r.strategy)}</span><div class="stat">${esc(r.created_at)}</div></div><div class="m">${Number(r.evaluated).toLocaleString()} designs · front ${r.pareto_size}<br>${Math.round(r.designs_per_sec).toLocaleString()}/s</div>`;
+    it.onclick = () => loadTwin(r.run_id);
+    el.append(it);
+  }
+  if (!state.twin && runs.length) loadTwin(runs[0].run_id);
+}
+
+const METRIC_LABEL = { perf: "Performance (GIPS)", power_w: "Power (W)", area_mm2: "Area (mm²)", cost_usd: "Die cost ($)", perf_per_watt: "GIPS/W", energy_pj_op: "Energy (pJ/op)", slack_ps: "Slack (ps)", temp_c: "Temperature (°C)", fmax_ghz: "Fmax (GHz)", yield: "Yield" };
+
+async function loadTwin(id) {
+  const d = await api(`/api/twin_runs/${encodeURIComponent(id)}`);
+  if (d.error) return;
+  state.twin = id; state.twinData = d; state.selRank = null;
+  $("twin-empty").classList.add("hidden");
+  $("twin").classList.remove("hidden");
+  const s = d.summary;
+  $("t-id").textContent = s.run_id;
+  $("t-strat").textContent = s.strategy;
+  $("t-meta").textContent = `seed ${s.seed} · ${d.created_at}`;
+  const best = s.top[0]?.robustness;
+  $("t-tiles").innerHTML = [
+    ["Designs explored", Number(s.evaluated).toLocaleString(), `+${Number(s.mc_evaluations || 0).toLocaleString()} Monte Carlo runs`],
+    ["Throughput", Math.round(s.designs_per_sec).toLocaleString() + "/s", `${fmt(s.elapsed_s, 2)} s · zero tokens`],
+    ["Feasible", Number(s.feasible).toLocaleString(), `${((s.feasible / s.evaluated) * 100).toFixed(0)}% of all`],
+    ["Pareto front", s.pareto_size, `${s.top.length} shown`],
+    ["Best robustness", best ? fmt(best.robustness_score, 1) : "–", best ? `slack yield ${(best.slack_yield * 100).toFixed(0)}%` : "no Monte Carlo"],
+    ["Calibrated", s.calibrated_parameters.length, s.calibrated_parameters.join(", ") || "none — run ingest_byo_pdk"],
+  ].map(([k, v, sub]) => `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${esc(sub)}</div></div>`).join("");
+  $("t-disc").textContent = s.fidelity_disclaimer + (s.notes?.length ? " " + s.notes.join(" ") : "");
+  const objs = d.objectives.map((o) => o.name);
+  const opts = Object.keys(METRIC_LABEL);
+  for (const [sel, def] of [["ax-x", objs[1] || "power_w"], ["ax-y", objs[0] || "perf"]]) {
+    $(sel).innerHTML = opts.map((k) => `<option value="${k}" ${k === def ? "selected" : ""}>${METRIC_LABEL[k]}</option>`).join("");
+    $(sel).onchange = drawScatter;
+  }
+  $("ax-c").onchange = drawScatter;
+  drawScatter();
+  drawTop();
+  drawSens();
+  document.querySelectorAll("#twinruns .item").forEach((n) => n.classList.toggle("sel", n.querySelector("b")?.textContent === id));
+}
+
+function ticks(lo, hi, n = 5) {
+  const span = hi - lo || Math.abs(hi) || 1, step0 = span / n, mag = 10 ** Math.floor(Math.log10(step0));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => span / s <= n) || mag * 10;
+  const out = []; for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(+v.toFixed(10));
+  return out;
+}
+
+function drawScatter() {
+  const d = state.twinData; if (!d) return;
+  const svg = $("scatter"), W = 760, H = 420, m = { l: 62, r: 16, t: 14, b: 44 };
+  const kx = $("ax-x").value, ky = $("ax-y").value, kc = $("ax-c").value;
+  const pts = d.points.filter((p) => Number.isFinite(p.m[kx]) && Number.isFinite(p.m[ky]));
+  if (!pts.length) { svg.innerHTML = ""; return; }
+  const xs = pts.map((p) => p.m[kx]), ys = pts.map((p) => p.m[ky]);
+  const pad = (a, b) => [a - (b - a) * 0.04, b + (b - a) * 0.04 || a + 1];
+  const [x0, x1] = pad(Math.min(...xs), Math.max(...xs)), [y0, y1] = pad(Math.min(...ys), Math.max(...ys));
+  const sx = (v) => m.l + (v - x0) / (x1 - x0) * (W - m.l - m.r), sy = (v) => H - m.b - (v - y0) / (y1 - y0) * (H - m.t - m.b);
+  let out = `<g class="axis">`;
+  for (const t of ticks(x0, x1)) out += `<line x1="${sx(t)}" x2="${sx(t)}" y1="${m.t}" y2="${H - m.b}" stroke-opacity=".6"/><text x="${sx(t)}" y="${H - m.b + 16}" text-anchor="middle">${fmt(t, t < 10 ? 2 : 0)}</text>`;
+  for (const t of ticks(y0, y1)) out += `<line x1="${m.l}" x2="${W - m.r}" y1="${sy(t)}" y2="${sy(t)}" stroke-opacity=".6"/><text x="${m.l - 8}" y="${sy(t) + 4}" text-anchor="end">${fmt(t, t < 10 ? 2 : 0)}</text>`;
+  out += `<text x="${(W + m.l) / 2}" y="${H - 8}" text-anchor="middle">${METRIC_LABEL[kx]}</text><text transform="translate(14 ${(H - m.b) / 2}) rotate(-90)" text-anchor="middle">${METRIC_LABEL[ky]}</text></g>`;
+  const nodes = [...new Set(pts.map((p) => p.node))].sort();
+  const maxGen = Math.max(...pts.map((p) => p.gen), 1);
+  const color = (p) => kc === "node" ? css(PALETTE[nodes.indexOf(p.node) % PALETTE.length]) : kc === "front" ? (p.front ? css("--c3") : css("--faint")) : `color-mix(in srgb, ${css("--c1")} ${Math.round(20 + 80 * p.gen / maxGen)}%, ${css("--faint")})`;
+  const ordered = [...pts].sort((a, b) => a.front - b.front);
+  for (const p of ordered) {
+    const r = p.front ? 4.2 : 2.6;
+    out += `<circle cx="${sx(p.m[kx]).toFixed(1)}" cy="${sy(p.m[ky]).toFixed(1)}" r="${r}" fill="${color(p)}" fill-opacity="${p.feasible ? (p.front ? .95 : .45) : .15}" ${p.front ? `stroke="${css("--panel")}" stroke-width="1"` : ""} data-tip="${esc(tipFor(p))}"/>`;
+  }
+  const top = d.summary.top;
+  for (const t of top) {
+    const mm = t.metrics; if (!Number.isFinite(mm[kx])) continue;
+    const sel = state.selRank === t.rank;
+    out += `<g data-tip="${esc(`#${t.rank} · robustness ${t.robustness ? t.robustness.robustness_score : "–"}`)}"><circle cx="${sx(mm[kx])}" cy="${sy(mm[ky])}" r="${sel ? 11 : 8}" fill="none" stroke="${css("--text")}" stroke-width="${sel ? 2.5 : 1.5}"/><text x="${sx(mm[kx]) + 11}" y="${sy(mm[ky]) - 8}" font-size="12" font-weight="700">#${t.rank}</text></g>`;
+  }
+  svg.innerHTML = out;
+  bindTips(svg);
+  $("sc-legend").innerHTML = kc === "node" ? nodes.map((n, i) => `<span><i style="background:var(${PALETTE[i % PALETTE.length]})"></i>${esc(n)}</span>`).join("") + `<span>large dots = Pareto front · faint = infeasible · rings = top-K</span>` : kc === "front" ? `<span><i style="background:var(--c3)"></i>Pareto front</span><span><i style="background:var(--faint)"></i>dominated</span>` : `<span>darker = later generation</span>`;
+}
+function tipFor(p) {
+  const P = p.p;
+  return `${P.node} · ${P.cores} cores · VLEN ${P.vlen}/DLEN ${P.dlen}\nL1 ${P.l1_kb}K · L2 ${P.l2_kb}K · LLC ${fmt(P.llc_mb, 1)}M · UCIe ${P.ucie_lanes}\n${fmt(P.freq_ghz, 2)} GHz @ ${fmt(P.vdd, 2)} V · util ${fmt(P.utilization, 2)}\nperf ${fmt(p.m.perf, 2)} · ${fmt(p.m.power_w, 2)} W · $${fmt(p.m.cost_usd, 2)} · slack ${fmt(p.m.slack_ps, 0)} ps${p.feasible ? "" : " · infeasible"}`;
+}
+
+function drawTop() {
+  const s = state.twinData.summary, objs = state.twinData.objectives.map((o) => o.name);
+  $("top-head").innerHTML = `<tr><th>#</th><th>Node</th><th>Config</th><th>GHz @ V</th>${objs.map((o) => `<th>${esc(METRIC_LABEL[o] || o)}</th>`).join("")}<th>Robust</th><th>Slack yield</th><th>P(thermal)</th></tr>`;
+  $("top-body").innerHTML = s.top.map((t) => {
+    const r = t.robustness || {}, P = t.params;
+    return `<tr data-rank="${t.rank}" class="${state.selRank === t.rank ? "sel" : ""}"><td>${t.rank}</td><td>${esc(P.node)}</td><td class="txt">${P.cores}c · V${P.vlen}/D${P.dlen} · L2 ${P.l2_kb}K · LLC ${fmt(P.llc_mb, 0)}M</td><td>${fmt(P.freq_ghz, 2)} @ ${fmt(P.vdd, 2)}</td>${objs.map((o) => `<td>${fmt(t.objectives[o], 2)}</td>`).join("")}<td style="color:${(r.robustness_score ?? 0) >= 90 ? "var(--ok)" : (r.robustness_score ?? 0) >= 60 ? "var(--warn)" : "var(--bad)"}">${fmt(r.robustness_score, 1)}</td><td>${r.slack_yield != null ? (r.slack_yield * 100).toFixed(1) + "%" : "–"}</td><td>${r.thermal_violation_prob != null ? (r.thermal_violation_prob * 100).toFixed(1) + "%" : "–"}</td></tr>`;
+  }).join("");
+  document.querySelectorAll("#top-body tr").forEach((tr) => tr.onclick = () => { state.selRank = +tr.dataset.rank; drawTop(); drawScatter(); });
+}
+
+function drawSens() {
+  const sens = state.twinData.summary.sensitivity || [];
+  $("sens").innerHTML = sens.length ? sens.map((e) => {
+    const top = Object.entries(e.impact).sort((a, b) => b[1] - a[1])[0];
+    return `<div class="sens"><div><div class="n">${esc(e.parameter)}</div><div class="prov">${esc(e.provenance)} · ${esc(top ? top[0] : "")}</div></div><div class="barbg"><div class="bar" style="width:${Math.round(e.score * 100)}%;background:${e.provenance === "assumed" ? "var(--c3)" : "var(--c1)"}"></div></div><div style="font-family:var(--mono);text-align:right">${e.score.toFixed(2)}</div></div>`;
+  }).join("") + `<div class="legend"><span><i style="background:var(--c3)"></i>assumed</span><span><i style="background:var(--c1)"></i>estimated</span><span>score = |Spearman ρ| vs the metric it moves most</span></div>`
+    : `<div class="empty">No Monte Carlo in this run (mc_trials = 0), or every parameter is calibrated.</div>`;
+}
+
+// ---------- tooltips ----------
+function bindTips(root) {
+  const tip = $("tip");
+  root.querySelectorAll("[data-tip]").forEach((n) => {
+    n.addEventListener("mousemove", (ev) => { tip.style.display = "block"; tip.innerText = n.dataset.tip; tip.style.left = Math.min(ev.clientX + 14, innerWidth - 290) + "px"; tip.style.top = ev.clientY + 14 + "px"; });
+    n.addEventListener("mouseleave", () => tip.style.display = "none");
+  });
+}
+
+
+// ---------- lab: shared ----------
+const post = (p, body) => fetch(p, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)})
+  .then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j.error || r.statusText); return j; });
+const tile = (k, v, s = "") => `<div class="tile"><div class="k">${esc(k)}</div><div class="v">${v}</div><div class="s">${esc(s)}</div></div>`;
+const pct = (v, d = 1) => v == null ? "–" : (100 * v).toFixed(d) + "%";
+
+// Build a form from a field list: [key, label, kind, options|range, default, fmt]
+function buildForm(root, fields, onChange) {
+  root.innerHTML = "";
+  const get = {};
+  for (const f of fields) {
+    const [key, label, kind, opt, def, show] = f;
+    const lab = document.createElement("label");
+    lab.dataset.key = key;
+    let input;
+    if (kind === "select") {
+      input = document.createElement("select");
+      for (const o of opt) { const [v, t] = Array.isArray(o) ? o : [o, o]; const el = document.createElement("option"); el.value = v; el.textContent = t; input.appendChild(el); }
+      input.value = def;
+      get[key] = () => { const v = input.value; return /^-?\d+(\.\d+)?$/.test(v) ? +v : v; };
+    } else if (kind === "check") {
+      input = document.createElement("input"); input.type = "checkbox"; input.checked = !!def;
+      get[key] = () => input.checked;
+    } else {
+      input = document.createElement("input"); input.type = "range";
+      [input.min, input.max, input.step] = opt; input.value = def;
+      get[key] = () => +input.value;
+    }
+    const val = document.createElement("span"); val.className = "val";
+    const upd = () => { val.textContent = kind === "check" ? "" : show ? show(get[key]()) : get[key](); };
+    upd();
+    input.addEventListener("input", () => { upd(); onChange && onChange(key); });
+    lab.append(document.createTextNode(label + " "), val, input);
+    root.appendChild(lab);
+  }
+  return () => Object.fromEntries(Object.entries(get).map(([k, g]) => [k, g()]));
+}
+
+let labReady = false, labMeta = null;
+async function initLab() {
+  if (labReady) return;
+  labReady = true;
+  labMeta = await api("/api/lab/meta");
+  initMemForm();
+  initPointForm();
+}
+
+// ---------- lab: memory simulator ----------
+let memVals = null, memRun = null, anim = {i: 0, playing: true, timer: null, acc: 0};
+function initMemForm() {
+  const pdks = labMeta.ladder.map((r) => [r.key, `${r.key} · ${r.node_nm} nm${r.tapeout_ready ? " · tape-out" : " · predictive"}`]);
+  memVals = buildForm($("mem-form"), [
+    ["technology", "Bitcell", "select", [["sram6t", "6T SRAM"], ["gc2t", "2T gain-cell eDRAM"], ["gc3t", "3T gain-cell eDRAM"]], "gc2t"],
+    ["pdk", "PDK node", "select", pdks, "sky130"],
+    ["capacity_kib", "Capacity", "select", [16, 32, 64, 128, 256, 512, 1024].map((v) => [v, v + " KiB"]), 64],
+    ["banks", "Banks", "select", [2, 4, 8, 16, 32, 64], 8],
+    ["word_bits", "Word", "select", [32, 64, 128].map((v) => [v, v + " bit"]), 64],
+    ["interleave", "Interleave", "select", ["low_order", "xor", "block"], "xor"],
+    ["arbiter", "Arbiter", "select", ["round_robin", "priority"], "round_robin"],
+    ["ecc", "ECC", "select", [["secded", "SECDED"], ["none", "none"]], "secded"],
+    ["num_requesters", "Requesters", "range", [1, 16, 1], 8],
+    ["temp_c", "Junction temp", "range", [0, 125, 5], 85, (v) => v + " °C"],
+    ["pim_lanes", "PIM lanes", "select", [0, 4, 8, 16], 0],
+    ["requests_per_cycle", "Offered load", "range", [0.1, 8, 0.1], 2, (v) => v.toFixed(1) + " req/cyc"],
+    ["pattern", "Access pattern", "select", ["random", "sequential", "strided"], "random"],
+    ["stride", "Stride", "select", [1, 2, 4, 8, 16, 64], 4],
+    ["read_fraction", "Reads", "range", [0, 1, 0.05], 0.7, (v) => Math.round(v * 100) + "%"],
+    ["cycles", "Cycles simulated", "select", [2000, 5000, 20000, 50000].map((v) => [v, v.toLocaleString()]), 5000],
+  ]);
+  $("mem-run").onclick = () => runMem(false);
+  $("mem-rtl").onclick = () => runMem(true);
+  $("mem-play").onclick = () => { anim.playing = !anim.playing; $("mem-play").textContent = anim.playing ? "⏸ Pause" : "▶ Play"; };
+  $("mem-step").onclick = () => { anim.playing = false; $("mem-play").textContent = "▶ Play"; stepAnim(1); };
+}
+
+function memBody(rtl) {
+  const v = memVals();
+  const pim = v.pim_lanes > 0;
+  return {config: {technology: v.technology, pdk: v.pdk, capacity_kib: v.capacity_kib, banks: v.banks, word_bits: v.word_bits,
+            interleave: v.interleave, arbiter: v.arbiter, ecc: v.ecc, num_requesters: v.num_requesters, temp_c: v.temp_c,
+            pim: pim ? {enabled: true, lanes: v.pim_lanes} : {enabled: false}},
+          workload: {requests_per_cycle: v.requests_per_cycle, pattern: v.pattern, stride: v.stride, read_fraction: v.read_fraction},
+          cycles: v.cycles, trace_cycles: 400, rtl};
+}
+
+async function runMem(rtl) {
+  $("mem-err").textContent = ""; $("mem-run").disabled = $("mem-rtl").disabled = true;
+  $("mem-status").textContent = rtl ? "simulating + generating RTL…" : "simulating…";
+  try {
+    const t0 = performance.now();
+    memRun = await post("/api/lab/memory", memBody(rtl));
+    $("mem-status").textContent = `${memRun.simulation.cycles.toLocaleString()} cycles in ${Math.round(performance.now() - t0)} ms`;
+    renderMem(rtl);
+  } catch (e) { $("mem-err").textContent = e.message; $("mem-status").textContent = ""; }
+  $("mem-run").disabled = $("mem-rtl").disabled = false;
+}
+
+function renderMem(rtl) {
+  const r = memRun.report, m = r.metrics, sim = memRun.simulation, cfg = r.config;
+  $("mem-out").classList.remove("hidden");
+  const gain = cfg.technology !== "sram6t";
+  $("mem-tiles").innerHTML = [
+    tile("Area", fmt(m.area_mm2, 3) + " mm²", `array ${fmt(m.array_area_mm2, 3)} mm²`),
+    tile("Clock", fmt(r.freq_mhz, 0) + " MHz", `fmax ${fmt(m.fmax_mhz, 0)} MHz`),
+    tile("Retention", gain ? fmt(m.retention_us, 1) + " µs" : "static", gain ? `refresh every ${sim.refresh_interval_cycles} cyc/row` : "no refresh"),
+    tile("Refresh overhead", gain ? pct(m.refresh_overhead) : "0%", gain ? `stalls ${pct(sim.refresh_stall_rate)}` : ""),
+    tile("Bank conflicts", pct(sim.conflict_rate), `model ${pct(m.conflict_rate)}`),
+    tile("Throughput", fmt(sim.throughput_per_cycle, 2) + " /cyc", fmt(m.bandwidth_gbs, 1) + " GB/s"),
+    tile("Latency", fmt(sim.avg_latency_cycles, 2) + " cyc", `max wait ${sim.max_wait_cycles}`),
+    tile("Energy", fmt(m.read_energy_pj_per_bit, 3) + " pJ/b", `write ${fmt(m.write_energy_pj_per_bit, 3)}`),
+    tile("Power", fmt(r.power_w.total * 1000, 2) + " mW", `refresh ${fmt(m.refresh_power_w * 1000, 2)} mW`),
+    tile("PIM", cfg.pim.enabled ? fmt(m.pim_gmacs, 1) + " GMAC/s" : "off", cfg.pim.enabled ? `${r.pim?.lanes_per_bank ?? ""} lanes/bank` : ""),
+  ].join("");
+  $("mem-disc").textContent = `${r.pdk.key}: accuracy ±${r.pdk.accuracy_margin_pct}% · ${r.pdk.tapeout_ready ? "tape-out ready" : "predictive, not manufacturable"} · ${r.fidelity_disclaimer}`;
+  const row = (k, a, s, f) => `<span>${k}</span><span>${f(a)}</span><span>${f(s)}</span>`;
+  $("mem-cmp").innerHTML = `<span class="h">metric</span><span class="h">analytical</span><span class="h">cycle sim</span>` +
+    row("conflict rate", m.conflict_rate, sim.conflict_rate, pct) +
+    row("throughput / cycle", m.served_per_cycle, sim.throughput_per_cycle, (v) => fmt(v, 3)) +
+    row("refresh overhead", m.refresh_overhead, sim.refresh_overhead, pct) +
+    row("avg latency (cyc)", m.avg_latency_cycles, sim.avg_latency_cycles, (v) => fmt(v, 2)) +
+    `<span>missed refresh deadlines</span><span></span><span>${sim.missed_refresh_deadlines}</span>`;
+  $("mem-warns").innerHTML = r.warnings.length ? r.warnings.map((w) => `<li>${esc(w)}</li>`).join("") : `<li style="color:var(--ok);list-style:none;margin-left:-18px">No warnings.</li>`;
+  drawTimeline(sim.timeline);
+  setupAnim(sim, cfg);
+  if (rtl) renderRtl(memRun.rtl); else $("rtl-panel").classList.add("hidden");
+}
+
+function drawTimeline(tl) {
+  const svg = $("mem-tl"), W = 520, H = 230, L = 40, R = 10, T = 12, mid = 112, B = 22;
+  const rows = tl.rows, bc = tl.bucket_cycles, n = rows.length;
+  if (!n) { svg.innerHTML = ""; return; }
+  const x = (i) => L + (W - L - R) * (n === 1 ? 0.5 : i / (n - 1));
+  const thr = rows.map((r) => r[1] / Math.max(1, r[0] - (rows[rows.indexOf(r) - 1]?.[0] ?? 0)));
+  const cf = rows.map((r) => r[4] ? r[2] / r[4] : 0), rf = rows.map((r) => r[4] ? r[3] / r[4] : 0);
+  const tmax = Math.max(...thr, 0.1) * 1.1, smax = Math.max(...cf, ...rf, 0.05) * 1.1;
+  const line = (vals, y0, h, max, col, dash = "") => `<polyline fill="none" stroke="${col}" stroke-width="1.8" ${dash ? `stroke-dasharray="${dash}"` : ""} points="${vals.map((v, i) => `${x(i).toFixed(1)},${(y0 + h - h * v / max).toFixed(1)}`).join(" ")}"/>`;
+  const axis = (y0, h, max, f, label) => `<g class="axis"><line x1="${L}" x2="${W - R}" y1="${y0 + h}" y2="${y0 + h}"/><text x="${L - 6}" y="${y0 + 8}" text-anchor="end">${f(max)}</text><text x="${L - 6}" y="${y0 + h}" text-anchor="end">0</text><text x="${L + 4}" y="${y0 + 9}">${label}</text></g>`;
+  const h1 = mid - T - 8, h2 = H - B - mid - 4;
+  svg.innerHTML = axis(T, h1, tmax, (v) => v.toFixed(2), "served / cycle") + line(thr, T, h1, tmax, css("--accent")) +
+    axis(mid, h2, smax, (v) => (100 * v).toFixed(0) + "%", "stall share of requests") + line(cf, mid, h2, smax, css("--bad")) + line(rf, mid, h2, smax, css("--warn"), "4 3") +
+    `<g class="axis"><text x="${L}" y="${H - 6}">cycle 0</text><text x="${W - R}" y="${H - 6}" text-anchor="end">${rows[n - 1][0].toLocaleString()} (bucket ${bc} cyc)</text></g>`;
+  $("tl-legend").innerHTML = `<span><i style="background:${css("--accent")}"></i>served</span><span><i style="background:${css("--bad")}"></i>bank conflict</span><span><i style="background:${css("--warn")}"></i>refresh stall</span>`;
+}
+
+const BANK_COL = () => ({".": css("--panel-2"), R: css("--logic"), W: css("--memory"), F: css("--warn"), r: css("--logic"), w: css("--memory")});
+const REQ_COL = () => ({".": css("--faint"), g: css("--ok"), s: css("--bad"), f: css("--warn")});
+function setupAnim(sim, cfg) {
+  clearInterval(anim.timer);
+  const frames = sim.frames || [], nb = cfg.banks, nr = cfg.num_requesters;
+  const svg = $("mem-anim"), W = 760, H = 400;
+  const cols = nb <= 4 ? nb : nb <= 16 ? 4 : 8, rowsN = Math.ceil(nb / cols);
+  const gx = 330, gw = W - gx - 16, cw = gw / cols, ch = Math.min(64, (H - 40) / rowsN);
+  const gy = (H - ch * rowsN) / 2;
+  const bankXY = (b) => [gx + (b % cols) * cw + cw / 2, gy + Math.floor(b / cols) * ch + ch / 2];
+  const ry = (r) => 24 + (H - 48) * (nr === 1 ? 0.5 : r / (nr - 1));
+  let html = `<text x="40" y="14" class="axis" style="fill:var(--muted);font-size:11px">requesters</text><text x="${gx}" y="${gy - 8}" style="fill:var(--muted);font-size:11px">${nb} banks · ${cfg.technology} · ${cfg.interleave}</text><g id="anim-links"></g>`;
+  for (let r = 0; r < nr; r++) html += `<circle id="rq${r}" cx="60" cy="${ry(r)}" r="9"/><text x="34" y="${ry(r) + 4}" text-anchor="end" style="font-size:11px;fill:var(--muted)">R${r}</text>`;
+  for (let b = 0; b < nb; b++) { const [cx, cy] = bankXY(b); html += `<rect id="bk${b}" x="${cx - cw / 2 + 3}" y="${cy - ch / 2 + 3}" width="${cw - 6}" height="${ch - 6}" rx="6" stroke-width="2"/>` + (cw > 34 ? `<text x="${cx}" y="${cy + 4}" text-anchor="middle" style="font-size:11px;pointer-events:none" id="bt${b}">B${b}</text>` : ""); }
+  svg.innerHTML = html;
+  anim = {i: 0, playing: true, timer: null, acc: 0, frames, bankXY, ry, nb, nr};
+  $("mem-play").disabled = $("mem-step").disabled = !frames.length;
+  $("mem-play").textContent = "⏸ Pause";
+  $("mem-legend").innerHTML = `<span><i style="background:${css("--logic")}"></i>read</span><span><i style="background:${css("--memory")}"></i>write</span><span><i style="background:${css("--warn")}"></i>refresh</span>` +
+    `<span><i style="background:${css("--ok")}"></i>granted</span><span><i style="background:${css("--bad")}"></i>conflict stall</span><span><i style="background:${css("--warn")};border-radius:50%"></i>refresh stall</span>`;
+  drawFrame(0);
+  anim.timer = setInterval(() => { if (!anim.playing || !frames.length) return; anim.acc += +$("mem-speed").value / 20; while (anim.acc >= 1) { anim.acc -= 1; stepAnim(1); } }, 50);
+}
+function stepAnim(k) { if (!anim.frames?.length) return; anim.i = (anim.i + k) % anim.frames.length; drawFrame(anim.i); }
+function drawFrame(i) {
+  const f = anim.frames?.[i];
+  if (!f) { $("mem-cyc").textContent = "no trace"; return; }
+  const bc = BANK_COL(), rc = REQ_COL();
+  for (let b = 0; b < anim.nb; b++) {
+    const st = f.banks[b], el = $("bk" + b);
+    el.setAttribute("fill", bc[st]); el.setAttribute("stroke", st === "r" || st === "w" ? css("--warn") : css("--line"));
+  }
+  let links = "";
+  for (let r = 0; r < anim.nr; r++) {
+    const st = f.req[r], c = rc[st];
+    $("rq" + r).setAttribute("fill", c);
+    const t = f.target[r];
+    if (t >= 0) { const [x, y] = anim.bankXY(t); links += `<line x1="70" y1="${anim.ry(r)}" x2="${x}" y2="${y}" stroke="${c}" stroke-width="${st === "g" ? 2 : 1.4}" ${st === "g" ? "" : 'stroke-dasharray="5 4"'} opacity=".8"/>`; }
+  }
+  $("anim-links").innerHTML = links;
+  const g = [...f.req].filter((c) => c === "g").length, s = [...f.req].filter((c) => c === "s" || c === "f").length;
+  $("mem-cyc").textContent = `cycle ${f.c} / ${anim.frames.length - 1} · ${g} granted · ${s} stalled`;
+}
+
+let rtlSel = null;
+function renderRtl(rtl) {
+  const p = $("rtl-panel"); p.classList.remove("hidden");
+  if (!rtl || rtl.error) { $("rtl-tabs").innerHTML = ""; $("rtl-code").textContent = rtl?.error || "No RTL"; $("rtl-lint").textContent = ""; return; }
+  const names = Object.keys(rtl.files);
+  rtlSel = names.includes(rtlSel) ? rtlSel : names[0];
+  const show = () => {
+    $("rtl-tabs").innerHTML = names.map((n) => `<button class="tab ${n === rtlSel ? "active" : ""}" data-f="${esc(n)}">${esc(n)}</button>`).join("");
+    $("rtl-tabs").querySelectorAll("button").forEach((b) => b.onclick = () => { rtlSel = b.dataset.f; show(); });
+    $("rtl-code").textContent = rtl.files[rtlSel];
+    const lint = rtl.lint[rtlSel];
+    $("rtl-lint").innerHTML = lint == null ? "" : lint.length ? `<span class="badge bad">${esc(lint.join("; "))}</span>` : `<span class="badge ok">lint PASS · ${rtl.files[rtlSel].split("\n").length} lines</span>`;
+  };
+  show();
+  $("rtl-dl").onclick = () => { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([rtl.files[rtlSel]], {type: "text/plain"})); a.download = rtlSel; a.click(); URL.revokeObjectURL(a.href); };
+}
+
+// ---------- lab: design-point simulator ----------
+let ptVals = null, ptTimer = null, ptSeq = 0;
+function initPointForm() {
+  const nodes = labMeta.twin_nodes.map((n) => [n, `${n} (±${labMeta.margins[n]}%)`]);
+  ptVals = buildForm($("pt-form"), [
+    ["node", "Node", "select", nodes, "N7"],
+    ["cores", "Cores", "range", [1, 64, 1], 8],
+    ["freq_ghz", "Clock", "range", [0.05, 3.5, 0.05], 1.5, (v) => v.toFixed(2) + " GHz"],
+    ["vdd_rel", "Supply", "range", [0.8, 1.15, 0.01], 1.0, (v) => v.toFixed(2) + " × Vnom"],
+    ["vlen", "VLEN", "select", [128, 256, 512, 1024], 256],
+    ["dlen", "DLEN", "select", [64, 128, 256, 512], 128],
+    ["l2_kb", "L2 / core", "select", [256, 512, 1024, 2048].map((v) => [v, v + " KiB"]), 512],
+    ["llc_mb", "LLC", "range", [0, 64, 1], 8, (v) => v + " MiB"],
+    ["utilization", "Placement util.", "range", [0.55, 0.85, 0.01], 0.7, (v) => Math.round(v * 100) + "%"],
+    ["memory", "On-chip memory model", "check", null, false],
+    ["mem_tech", "Memory bitcell", "select", ["sram6t", "gc2t", "gc3t"], "gc2t"],
+    ["mem_banks", "Memory banks", "select", [2, 4, 8, 16, 32, 64], 16],
+    ["mem_interleave", "Interleave", "select", ["low_order", "xor", "block"], "xor"],
+    ["pim_lanes", "PIM lanes", "select", [0, 4, 8, 16], 8],
+    ["capacity_kib", "Memory size", "select", [256, 512, 1024, 2048, 4096, 8192].map((v) => [v, v >= 1024 ? v / 1024 + " MiB" : v + " KiB"]), 2048],
+  ], () => { clearTimeout(ptTimer); ptTimer = setTimeout(evalPoint, 90); });
+  $("pt-search").onclick = searchPoint;
+  evalPoint();
+}
+function ptBody() {
+  const v = ptVals();
+  const params = {node: v.node, cores: v.cores, freq_ghz: v.freq_ghz, vdd_rel: v.vdd_rel, vlen: v.vlen, dlen: Math.min(v.dlen, v.vlen),
+                  l2_kb: v.l2_kb, llc_mb: v.llc_mb, utilization: v.utilization};
+  if (v.memory) Object.assign(params, {mem_tech: v.mem_tech, mem_banks: v.mem_banks, mem_interleave: v.mem_interleave, pim_lanes: v.pim_lanes});
+  return {params, memory: v.memory ? {capacity_kib: v.capacity_kib} : null};
+}
+async function evalPoint() {
+  const seq = ++ptSeq;
+  document.querySelectorAll("#pt-form label").forEach((l) => { if (/^(mem_|pim_|capacity)/.test(l.dataset.key)) l.style.opacity = ptVals().memory ? 1 : .45; });
+  try {
+    const r = await post("/api/lab/point", ptBody());
+    if (seq !== ptSeq) return;
+    $("pt-err").textContent = "";
+    const m = r.metrics, mg = r.accuracy_margin_pct;
+    const band = (v, d, unit) => `${fmt(v * (1 - mg / 100), d)}–${fmt(v * (1 + mg / 100), d)} ${unit}`;
+    const t = [
+      tile("Performance", fmt(m.perf, 2) + " GIPS", `±${mg}% → ${band(m.perf, m.perf < 10 ? 2 : 1, "")}`),
+      tile("Power", fmt(m.power_w, 2) + " W", `dyn ${fmt(m.dynamic_w, 2)} · leak ${fmt(m.leakage_w, 3)}`),
+      tile("Perf / W", fmt(m.perf_per_watt, 2), `${fmt(m.energy_pj_op, 1)} pJ/op`),
+      tile("Die area", fmt(m.area_mm2, 1) + " mm²", `yield ${pct(m.yield)}`),
+      tile("Unit cost", usd(m.cost_usd), r.node),
+      tile("Timing slack", `<span style="color:${m.slack_ps >= 0 ? "var(--ok)" : "var(--bad)"}">${fmt(m.slack_ps, 0)} ps</span>`, `fmax ${fmt(m.fmax_ghz, 2)} GHz`),
+      tile("Temperature", fmt(m.temp_c, 1) + " °C", ""),
+    ];
+    if (m.mem_area_mm2 != null) t.push(
+      tile("Memory", fmt(m.mem_area_mm2, 2) + " mm²", `${fmt(m.mem_power_w * 1000, 1)} mW`),
+      tile("Refresh", pct(m.refresh_overhead), m.retention_us ? `retention ${fmt(m.retention_us, 1)} µs` : "SRAM: none"),
+      tile("Mem conflicts", pct(m.mem_conflict_rate), fmt(m.mem_bandwidth_gbs, 1) + " GB/s"),
+      tile("PIM", fmt(m.pim_gmacs, 1) + " GMAC/s", ""));
+    $("pt-tiles").innerHTML = t.join("");
+  } catch (e) { if (seq === ptSeq) $("pt-err").textContent = e.message; }
+}
+async function searchPoint() {
+  const v = ptVals(), b = ptBody();
+  $("pt-search").disabled = true; $("pt-status").textContent = "searching…"; $("pt-err").textContent = "";
+  try {
+    const tsmc = ["N16", "N7", "N5", "N3"].includes(v.node);
+    const r = await post("/api/lab/twin", {node_set: tsmc ? "tsmc" : "ladder", memory: b.memory, population: 48, generations: 20, mc_trials: 128});
+    $("pt-status").textContent = `${r.evaluated.toLocaleString()} designs at ${Math.round(r.designs_per_sec).toLocaleString()}/s`;
+    setView("twin"); await loadTwin(r.run_id);
+  } catch (e) { $("pt-err").textContent = e.message; $("pt-status").textContent = ""; }
+  $("pt-search").disabled = false;
+}
+
+// ---------- simulate an agent design ----------
+async function simDesign(fidelity) {
+  if (!state.design) return;
+  $("ds-err").textContent = ""; $("ds-ana").disabled = $("ds-de").disabled = true;
+  $("ds-note").textContent = `running ${fidelity.replace("_", "-")} simulation…`;
+  try {
+    const t0 = performance.now();
+    const WL = {llm70: {type: "llm_decode", model_params_b: 70, batch_size: 8}, llm8: {type: "llm_decode", model_params_b: 8, batch_size: 32},
+                prefill: {type: "llm_prefill", model_params_b: 70, batch_size: 1, sequence_length: 2048}};
+    const r = await post("/api/lab/design_sim", {design_id: state.design, fidelity, workload: WL[$("ds-wl").value] || null});
+    const m = r.metrics || {};
+    const nice = (k) => k.replace(/_/g, " ").replace(/\b(ms|tops|gbps|tbps|mj|us|ns)\b/gi, (u) => u.toUpperCase());
+    const keys = Object.keys(m).filter((k) => typeof m[k] === "number" && m[k] !== 0).slice(0, 12);
+    $("ds-tiles").innerHTML = keys.map((k) => tile(nice(k), fmt(m[k], Math.abs(m[k]) < 10 ? 3 : 1))).join("");
+    $("ds-note").textContent = `${r.fidelity || fidelity} · ${Math.round(performance.now() - t0)} ms · ${(r.warnings || []).length} warnings · not saved`;
+  } catch (e) { $("ds-err").textContent = e.message; $("ds-note").textContent = ""; }
+  $("ds-ana").disabled = $("ds-de").disabled = false;
+}
+$("ds-ana").onclick = () => simDesign("analytical");
+$("ds-de").onclick = () => simDesign("discrete_event");
+
+// ---------- boot ----------
+(async function boot() {
+  const evs = await api("/api/events");
+  addEvents(evs, false);
+  refreshStatus();
+  await loadDesigns();
+  connect();
+  setInterval(() => { document.querySelectorAll("#feed .ev .top span:nth-child(2)").forEach((n, i) => { const e = state.events[state.events.length - 1 - i]; if (e) n.textContent = ago(e.ts); }); refreshStatus(); }, 15000);
+})();
+</script>
+</body>
+</html>

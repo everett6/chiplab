@@ -1,0 +1,33 @@
+[project]
+name = "chiplab"
+version = "0.1.0"
+requires-python = ">=3.11"
+description = "ChipLab: Heterogeneous hardware design and simulation framework"
+
+dependencies = [
+    "mcp[cli]",
+    "pydantic>=2.0",
+    "numpy",
+    "pandas",
+    "pyyaml",
+    "simpy",
+    "starlette",
+    "uvicorn",
+]
+
+[optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+chiplab-mcp = "chiplab.mcp_server:main"
+chiplab-app = "chiplab.app.server:main"
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"chiplab.app" = ["static/*"]

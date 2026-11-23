@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# Testing / tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Graphify
+graphify-out/
+
+# ChipLab runtime artifacts
+*.db
+*.db-shm
+*.db-wal
+chiplab_experiments.db*
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/

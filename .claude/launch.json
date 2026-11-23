@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "chiplab-app",
+      "runtimeExecutable": "/home/everett/Chip Lab/.venv/bin/chiplab-app",
+      "runtimeArgs": ["--db", "/home/everett/Chip Lab/chiplab_experiments.db", "--port", "8770"],
+      "port": 8770
+    }
+  ]
+}

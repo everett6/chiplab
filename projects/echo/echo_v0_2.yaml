@@ -1,0 +1,98 @@
+design:
+  name: "Echo Chiplet v0.2"
+  version: "0.2"
+  parent_version: "0.1"
+  description: "Heterogeneous DRAM-PIM + digital compute chiplet design for MoE decode. Updated version with improved PIM efficiency and HBM memory option. Parameters evolved from v0.1 with parent_version: \"0.1\"."
+
+  architecture: "heterogeneous_accelerator"
+
+  chiplets:
+    - id: "mem_0"
+      type: "DRAM"
+      count: 4
+      area_mm2: 350.0
+      tdp_watts: 15.0
+      process_nm: 14
+      memory:
+        technology: "DRAM"
+        capacity_per_chiplet_gb: 8.0
+        channels: 8
+        banks_per_channel: 8
+        bandwidth_per_channel_gbps: 64.0
+        latency_ns: 50.0
+        energy_pj_per_bit: 64.0
+        stack_layers: 1
+      compute:
+        architecture: "SIMD"
+        precision: "INT8"
+        peak_tops: 100.0
+        clock_ghz: 1.0
+        mac_units: 64
+        efficiency_factor: 0.8
+    - id: "pim_0"
+      type: "PIM"
+      count: 2
+      area_mm2: 250.0
+      tdp_watts: 20.0
+      process_nm: 28
+      memory:
+        technology: "processing_in_memory"
+        capacity_per_chiplet_gb: 0.0
+      compute:
+        architecture: "processing_in_memory"
+        precision: "INT8"
+        peak_tops: 80.0
+        clock_ghz: 0.9
+        mac_units: 128
+        efficiency_factor: 0.97
+    - id: "hbm_0"
+      type: "HBM3"
+      count: 1
+      area_mm2: 200.0
+      tdp_watts: 30.0
+      process_nm: 12
+      memory:
+        technology: "HBM3"
+        capacity_per_chiplet_gb: 16.0
+        channels: 8
+        bandwidth_per_channel_gbps: 256.0
+        latency_ns: 30.0
+        energy_pj_per_bit: 32.0
+        stack_layers: 8
+      compute:
+        architecture: "tensor_engine"
+        precision: "BF16"
+        peak_tops: 1000.0
+        clock_ghz: 1.2
+        mac_units: 8192
+        sram_mb: 64.0
+        efficiency_factor: 0.85
+
+  interconnect:
+    topology: "mesh"
+    link_bandwidth_gbps: 150.0
+    latency_ns: 8.0
+    energy_pj_per_bit: 2.0
+    lanes_per_chiplet: 8
+
+  constraints:
+    max_power_watts: 65.0
+    max_area_mm2: 900.0
+    max_temp_c: 85.0
+    ambient_temp_c: 25.0
+    max_cost_usd: 600000000.0
+
+  metadata:
+    target_workload: "moe_decode"
+    target_application: "large_language_model"
+
+  workload:
+    name: "moe_decode_workload"
+    type: "moe_decode"
+    batch_size: 1
+    sequence_length: 128
+    hidden_dim: 4096
+    num_layers: 32
+    num_experts: 8
+    active_experts: 2
+    precision: "INT8"

@@ -1,0 +1,44 @@
+/* Synthetic 7nm-class Liberty for tests (not a real PDK) */
+library (mini7) {
+  delay_model : table_lookup ;
+  time_unit : "1ns" ;
+  voltage_unit : "1V" ;
+  leakage_power_unit : "1nW" ;
+  capacitive_load_unit (1, ff) ;
+  nom_process : 1.0 ;
+  nom_voltage : 0.75 ;
+  nom_temperature : 25.0 ;
+  lu_table_template (delay_tmpl) {
+    variable_1 : input_net_transition ;
+    variable_2 : total_output_net_capacitance ;
+    index_1 ("0.005, 0.02, 0.08") ;
+    index_2 ("0.5, 2.0, 8.0") ;
+  }
+  cell (INV_X1) {
+    area : 0.05 ;
+    cell_leakage_power : 0.6 ;
+    pin (A) { direction : input ; capacitance : 0.5 ; }
+    pin (ZN) {
+      direction : output ;
+      function : "!A" ;
+      timing () {
+        related_pin : "A" ;
+        cell_rise (delay_tmpl) {
+          values ("0.004, 0.006, 0.012", \
+                  "0.005, 0.0075, 0.014", \
+                  "0.008, 0.010, 0.018") ;
+        }
+        cell_fall (delay_tmpl) {
+          values ("0.003, 0.005, 0.010", "0.0045, 0.0065, 0.012", "0.007, 0.009, 0.016") ;
+        }
+      }
+    }
+  }
+  cell (NAND2_X1) {
+    area : 0.08 ;
+    cell_leakage_power : 1.0 ;
+    pin (A1) { direction : input ; capacitance : 0.6 ; }
+    pin (A2) { direction : input ; capacitance : 0.6 ; }
+    pin (ZN) { direction : output ; function : "!(A1&A2)" ; }
+  }
+}

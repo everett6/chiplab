@@ -1,0 +1,23 @@
+*SPEF "IEEE 1481-1998"
+*DESIGN "core"
+*T_UNIT 1 PS
+*C_UNIT 1 FF
+*R_UNIT 1 OHM
+*L_UNIT 1 HENRY
+*D_NET n1 1.5
+*CONN
+*I u1:ZN O
+*I u2:A1 I
+*CAP
+1 n1:1 0.7
+2 n1:2 0.8
+*RES
+1 u1:ZN n1:1 20.0
+2 n1:1 u2:A1 30.0
+*END
+*D_NET n2 2.5
+*CAP
+1 n2:1 2.5
+*RES
+1 u2:ZN reg_b:D 40.0
+*END
