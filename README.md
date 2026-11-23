@@ -110,6 +110,13 @@ ChipLab uses YAML design specifications that can be loaded via `DesignSpec.from_
 - `projects/echo/echo_v0_2.yaml`: Updated version with HBM3 memory option
 - `projects/echo/echo_v0_1_ecore.yaml`: v0.1 with PIM numbers from the eCore simulator
 - `examples/transformer_accelerator.yaml`: Generic HBM + systolic array architecture
+- `examples/riscv_soc.yaml`: 3 W N7 RISC-V SoC (4 RVV cores + INT8 matrix unit) with LPDDR5
+- `examples/hbm_ai_accelerator.yaml`: one reticle-class N5 tensor die + 6 HBM3 on CoWoS-S
+- `examples/stacked_3d_accelerator.yaml`: N3 logic hybrid-bonded (SoIC) on a 256 MB SRAM die,
+  plus 4 HBM3E
+
+Each new example carries a `metadata.workload_hint` to pass to `chip_evaluate`, and
+`tests/test_example_designs.py` evaluates every shipped YAML.
 
 ## Installation
 

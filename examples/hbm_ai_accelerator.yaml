@@ -1,0 +1,52 @@
+# Illustrative datacenter training/inference accelerator on CoWoS-S. Estimates only.
+design:
+  name: "HBM3 AI Accelerator"
+  version: "0.1"
+  description: >-
+    One reticle-class N5 tensor die with 6 HBM3 stacks on a CoWoS-S interposer. A
+    single-die alternative to the two-die llm_accelerator_hbm3e template.
+  architecture: "heterogeneous_accelerator"
+  package:
+    type: "2.5D"
+    interposer: "cowos_s"
+  chiplets:
+    - id: "tensor"
+      type: "compute"
+      count: 1
+      area_mm2: 800.0
+      tdp_watts: 550.0
+      process_nm: 5
+      compute:
+        architecture: "tensor_engine"
+        precision: "FP8"
+        peak_tops: 1800.0
+        clock_ghz: 1.75
+        mac_units: 262144
+        sram_mb: 50.0
+        efficiency_factor: 0.65
+    - id: "hbm"
+      type: "HBM3"
+      count: 6
+      tdp_watts: 12.0
+      memory:
+        technology: "HBM3"
+        capacity_per_chiplet_gb: 16.0
+        channels: 16
+        bandwidth_per_channel_gbps: 51.2   # 819 GB/s per stack at 6.4 Gb/s/pin
+        latency_ns: 100.0
+        energy_pj_per_bit: 3.9
+        stack_layers: 8
+  interconnect:
+    topology: "mesh"
+    link_bandwidth_gbps: 6000.0
+    latency_ns: 20.0
+    energy_pj_per_bit: 0.4
+    lanes_per_chiplet: 4
+  constraints:
+    max_power_watts: 700.0
+    max_temp_c: 95.0
+    thermal_resistance_c_per_w: 0.06
+    max_cost_usd: 6000.0
+  metadata:
+    suggested_volume: 100000
+    workload_hint: {type: "llm_decode", model_params_b: 70, batch_size: 16}

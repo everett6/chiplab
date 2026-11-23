@@ -1,0 +1,51 @@
+# Illustrative edge RISC-V SoC. Every number is an estimate for exploration, not a product.
+design:
+  name: "RISC-V Edge SoC"
+  version: "0.1"
+  description: >-
+    Single N7 die: 4 application cores with RVV 1.0 vector units (VLEN 256) plus a small
+    INT8 matrix accelerator, 2 MB shared L2, LPDDR5 on the board. Target: 3 W smart camera
+    / gateway class.
+  architecture: "soc"
+  package:
+    type: "chiplets"           # SoC die + LPDDR5 (on board); the packaging model needs 2+ dies here
+    interposer: "fcbga"
+  chiplets:
+    - id: "soc"
+      type: "compute"
+      count: 1
+      area_mm2: 28.0
+      tdp_watts: 2.5
+      process_nm: 7
+      compute:
+        architecture: "cpu_vector"
+        precision: "INT8"
+        peak_tops: 4.0        # 4 cores x VLEN 256 x 2 GHz (~0.5) + matrix unit (~3.5)
+        clock_ghz: 2.0
+        mac_units: 2048
+        sram_mb: 2.0
+        efficiency_factor: 0.45
+    - id: "dram"
+      type: "LPDDR5"
+      count: 1
+      tdp_watts: 0.5
+      memory:
+        technology: "LPDDR5"
+        capacity_per_chiplet_gb: 4.0
+        channels: 2
+        bandwidth_per_channel_gbps: 12.8   # GB/s per x32 channel at 6400 MT/s
+        latency_ns: 110.0
+        energy_pj_per_bit: 5.0
+  interconnect:
+    topology: "bus"
+    link_bandwidth_gbps: 64.0
+    latency_ns: 8.0
+    energy_pj_per_bit: 1.0
+  constraints:
+    max_power_watts: 3.5
+    max_temp_c: 105.0
+    thermal_resistance_c_per_w: 12.0
+    max_cost_usd: 60.0           # includes the 4 GB LPDDR5
+  metadata:
+    suggested_volume: 2000000
+    workload_hint: {type: "llm_decode", model_params_b: 1, batch_size: 1}
