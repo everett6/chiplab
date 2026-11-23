@@ -1,9 +1,23 @@
 [project]
 name = "chiplab"
 version = "0.1.0"
+description = "Chip architecture exploration over MCP: performance, power/thermal and unit cost for chiplet designs"
+readme = "README.md"
 requires-python = ">=3.11"
-description = "ChipLab: Heterogeneous hardware design and simulation framework"
-
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "everett6" }]
+keywords = ["chiplet", "hardware", "accelerator", "simulation", "mcp", "eda", "roofline"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
+]
 dependencies = [
     "mcp[cli]",
     "pydantic>=2.0",
@@ -14,15 +28,21 @@ dependencies = [
     "uvicorn",
 ]
 
-[optional-dependencies]
-dev = ["pytest"]
+[project.optional-dependencies]
+dev = ["pytest", "httpx"]
+
+[project.urls]
+Homepage = "https://github.com/everett6/chiplab"
+Repository = "https://github.com/everett6/chiplab"
+Issues = "https://github.com/everett6/chiplab/issues"
 
 [project.scripts]
+chiplab = "chiplab.mcp_server:main"
 chiplab-mcp = "chiplab.mcp_server:main"
 chiplab-app = "chiplab.app.server:main"
 
 [build-system]
-requires = ["setuptools"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]

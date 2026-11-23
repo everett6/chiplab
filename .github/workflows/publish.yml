@@ -1,0 +1,25 @@
+# Publishes to PyPI when a GitHub release is published. Uses PyPI trusted publishing:
+# before the first release, add this repository as a trusted publisher for the
+# "chiplab" project on pypi.org (workflow: publish.yml, environment: pypi). No API token.
+name: Publish to PyPI
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          python -m pip install --upgrade build
+          python -m build
+      - uses: pypa/gh-action-pypi-publish@release/v1

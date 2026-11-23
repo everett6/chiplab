@@ -1,10 +1,63 @@
-# ChipLab: Heterogeneous Accelerator Design Space Exploration
+# ChipLab
 
-ChipLab is a framework for designing and simulating heterogeneous accelerator architectures, including chiplet-based designs with memory, compute, and interconnect components.
+<!-- mcp-name: io.github.everett6/chiplab -->
 
-## Architecture Overview
+[![CI](https://github.com/everett6/chiplab/actions/workflows/ci.yml/badge.svg)](https://github.com/everett6/chiplab/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+![Python 3.11-3.13](https://img.shields.io/badge/python-3.11--3.13-blue.svg)
 
-ChipLab consists of the following major components:
+Chip architecture exploration for coding agents. ChipLab is an MCP server (and Python
+library) that lets Claude Code, Codex, Gemini CLI or ChatGPT design a chiplet-based chip and
+check it: performance (roofline or tile-level discrete-event simulation), power and thermal,
+and unit cost from wafer prices, yield, memory $/GB, packaging, test and mask NRE. Every
+number carries a provenance (measured / published / estimated / assumed) and every result a
+fidelity level and disclaimer.
+
+## 60-second quickstart
+
+```bash
+git clone https://github.com/everett6/chiplab.git
+cd chiplab
+python -m venv .venv && . .venv/bin/activate
+pip install -e ".[dev]"
+python - <<'PY'
+from chiplab.mcp_server import chip_design_from_template, chip_evaluate
+d = chip_design_from_template("edge_npu")
+r = chip_evaluate(d["design_id"], workload={"type": "llm_decode", "model_params_b": 8})
+print(r["performance"]["throughput_tokens_per_sec"], r["cost"]["unit_cost_usd"],
+      r["efficiency"], r["bottleneck"]["primary_bottleneck"])
+PY
+```
+
+Output (edge NPU, N4 + LPDDR5X, 8B-parameter decode):
+
+| metric | value |
+|---|---|
+| peak compute | 40 TOPS |
+| decode throughput | 8.5 tokens/s (memory-bandwidth bound) |
+| power / temperature | 5.0 W / 55 C |
+| unit cost | $85 typical ($59 to $167) |
+| efficiency | 8.0 TOPS/W, $2.13 per peak TOPS |
+| constraints | power, temperature and cost all pass |
+
+Then connect an agent (see [MCP setup](#mcp-setup-claude-code-codex-gemini-cli-chatgpt)) and
+ask it to design something: it will call `chip_quickstart`, `chip_design_from_template` /
+`chip_create_design` and `chip_evaluate`.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    A["Agent<br/>(Claude Code, Codex, Gemini, ChatGPT)"] -- MCP stdio / HTTP --> M["mcp_server.py<br/>tools, resources, prompts"]
+    W["Web app<br/>GPU Studio + Live"] --> M
+    M --> S["schemas<br/>DesignSpec, WorkloadSpec,<br/>TrackedValue + provenance"]
+    M --> E["engine<br/>L1 analytical roofline<br/>L2 discrete-event<br/>sweeps, digital twin"]
+    E --> MD["models<br/>memory, compute, interconnect,<br/>packaging, power/thermal"]
+    M --> C["cost<br/>wafers, yield, HBM/DRAM,<br/>packaging, test, NRE"]
+    E --> B["backends<br/>eCore (analog DRAM CIM)<br/>Ramulator / SCALE-Sim / Accel-Sim<br/>(detected only)"]
+    M --> X[("experiments<br/>SQLite store")]
+    M --> R["results<br/>Markdown / JSON / CSV"]
+```
 
 ### Schema Layer (`src/chiplab/schemas/`)
 - **DesignSpec**: Heterogeneous hardware design specification with support for chiplets, memory specs, compute specs, packages, and interconnects
@@ -41,6 +94,10 @@ ChipLab consists of the following major components:
 - Save/get operations for all result types
 
 ### Backends (`src/chiplab/backends/`)
+- **eCore** (integrated, array level): Echo Lab's SPICE-calibrated analog DRAM
+  compute-in-memory simulator. PIM chiplets with a `compute.ecore` block take their compute
+  rate, energy/op, power and area from it; MCP tool `simulate_ecore_array`. Optional: tests
+  skip without Echo Lab. See [docs/ecore_backend.md](docs/ecore_backend.md).
 - Ramulator, SCALE-Sim and Accel-Sim are **detected only, not integrated**: `run()` raises
   `NotImplementedError` even when the tool is installed, and `backend_status()` reports
   installed / integrated / usable. Asking `chip_run_simulation` for `specialized` or
@@ -51,30 +108,28 @@ ChipLab consists of the following major components:
 ChipLab uses YAML design specifications that can be loaded via `DesignSpec.from_yaml()`:
 - `projects/echo/echo_v0_1.yaml`: Baseline DRAM-PIM + digital compute design
 - `projects/echo/echo_v0_2.yaml`: Updated version with HBM3 memory option
+- `projects/echo/echo_v0_1_ecore.yaml`: v0.1 with PIM numbers from the eCore simulator
 - `examples/transformer_accelerator.yaml`: Generic HBM + systolic array architecture
 
 ## Installation
 
-### Using uv (recommended)
+ChipLab is not on PyPI yet (a release workflow is ready in `.github/workflows/publish.yml`).
+Install from source:
 ```bash
-uv venv
-source .venv/bin/activate
-uv pip install chiplab
+git clone https://github.com/everett6/chiplab.git
+cd chiplab
+python -m venv .venv && . .venv/bin/activate
+python -m pip install -e ".[dev]"
+python -m pytest -q
 ```
-
-### Using pip
-```bash
-pip install chiplab
-```
-
-Or install from source:
-```bash
-git clone https://github.com/your-repo/chilab.git
-cd chilab
-python -m pip install -e .
-```
+Optional: [Verilator](https://verilator.org) 5.x enables the RTL tests; Echo Lab enables the
+eCore backend. Both are skipped when missing.
 
 ## MCP Setup (Claude Code, Codex, Gemini CLI, ChatGPT)
+
+`server.json` is the [MCP registry](https://registry.modelcontextprotocol.io) manifest
+(`io.github.everett6/chiplab`). It becomes installable from the registry once `chiplab` is on
+PyPI and the manifest is published with `mcp-publisher publish`.
 
 The same server works in every MCP client. Local clients start it over stdio; ChatGPT on the
 web needs it over HTTP behind a public HTTPS URL. Set `CHIPLAB_DB_PATH` so every client
@@ -82,18 +137,18 @@ shares one design database (otherwise it is created in the client's working dire
 
 ### Claude Code
 ```bash
-claude mcp add --scope user chiplab -e CHIPLAB_DB_PATH="/home/everett/Chip Lab/chiplab_experiments.db" -- "/home/everett/Chip Lab/.venv/bin/chiplab-mcp"
+claude mcp add --scope user chiplab -e CHIPLAB_DB_PATH="/path/to/chiplab/chiplab_experiments.db" -- "/path/to/chiplab/.venv/bin/chiplab-mcp"
 ```
 
 ### Codex CLI / Codex IDE extension
 ```bash
-codex mcp add chiplab --env CHIPLAB_DB_PATH="/home/everett/Chip Lab/chiplab_experiments.db" -- "/home/everett/Chip Lab/.venv/bin/chiplab-mcp"
+codex mcp add chiplab --env CHIPLAB_DB_PATH="/path/to/chiplab/chiplab_experiments.db" -- "/path/to/chiplab/.venv/bin/chiplab-mcp"
 ```
 Or add this to `~/.codex/config.toml`:
 ```toml
 [mcp_servers.chiplab]
-command = "/home/everett/Chip Lab/.venv/bin/chiplab-mcp"
-env = { CHIPLAB_DB_PATH = "/home/everett/Chip Lab/chiplab_experiments.db" }
+command = "/path/to/chiplab/.venv/bin/chiplab-mcp"
+env = { CHIPLAB_DB_PATH = "/path/to/chiplab/chiplab_experiments.db" }
 ```
 
 ### Gemini CLI
@@ -102,8 +157,8 @@ Add to `~/.gemini/settings.json`:
 {
   "mcpServers": {
     "chiplab": {
-      "command": "/home/everett/Chip Lab/.venv/bin/chiplab-mcp",
-      "env": { "CHIPLAB_DB_PATH": "/home/everett/Chip Lab/chiplab_experiments.db" }
+      "command": "/path/to/chiplab/.venv/bin/chiplab-mcp",
+      "env": { "CHIPLAB_DB_PATH": "/path/to/chiplab/chiplab_experiments.db" }
     }
   }
 }
@@ -112,7 +167,7 @@ Add to `~/.gemini/settings.json`:
 ### ChatGPT (web/desktop, Developer mode connector)
 1. Run the server over HTTP:
    ```bash
-   "/home/everett/Chip Lab/.venv/bin/chiplab-mcp" --transport streamable-http --port 8000
+   "/path/to/chiplab/.venv/bin/chiplab-mcp" --transport streamable-http --port 8000
    ```
 2. Expose it over HTTPS with a tunnel, e.g. `cloudflared tunnel --url http://localhost:8000`,
    then restart step 1 with `--allowed-host <your-tunnel-host>` so the host check accepts it.
@@ -201,7 +256,7 @@ OpenFOAM (CFD). The thermal and airflow models are first-order engineering model
 ## ChipLab Live (watch agents design in real time)
 
 ```bash
-cd "/home/everett/Chip Lab" && .venv/bin/chiplab-app --open
+cd /path/to/chiplab && .venv/bin/chiplab-app --open
 ```
 This opens http://127.0.0.1:8770. Every MCP tool call from every connected agent (Claude Code,
 Codex, Gemini CLI, ChatGPT) is written to the shared database and streams into the page:
@@ -447,3 +502,7 @@ Updated version with improved PIM efficiency and HBM3 memory option, parent_vers
 
 ### transformer_accelerator.yaml
 Generic architecture demonstrating ChipLab is not tied to ECHO designs: HBM3 + systolic array tensor engine.
+
+## License
+
+Apache-2.0, see [LICENSE](LICENSE).
