@@ -835,6 +835,30 @@ def simulate_ecore_array(rows: int = 64, cols: int = 64, precision: str = "int8"
         raise RuntimeError(f"eCore backend unavailable: {e}") from e
 
 
+def chip_uncertainty(design_id_or_name: str | None = None, spec: str | dict | None = None,
+                     workload: dict | None = None, samples: int = 200, seed: int = 42,
+                     default_pct: float = 15.0, include_cost: bool = True,
+                     volume: int | None = None, version: str | None = None) -> dict:
+    """Confidence bands (5th/50th/95th percentile) on peak/effective TOPS, tokens/s, latency,
+    power, temperature, energy/inference and unit cost, by Monte Carlo over the design's
+    uncertain inputs. Each input varies uniformly within +/- its TrackedValue uncertainty_pct,
+    else by provenance (measured 5%, published 10%, estimated 20%, assumed 30%), else
+    default_pct for plain numbers. Also returns the top-3 inputs driving each output
+    (Spearman). Seeded and read-only (nothing is saved). samples 10-5000."""
+    from chiplab.engine.uncertainty import propagate_uncertainty
+    from chiplab.schemas.workload import WorkloadSpec
+    if spec is not None:
+        design = _parse_spec(spec)
+    elif design_id_or_name:
+        _, design = store.get_design(design_id_or_name, version)
+    else:
+        raise ValueError("Pass design_id_or_name (a saved design) or spec (YAML/JSON/dict).")
+    wl = WorkloadSpec.model_validate(workload) if workload is not None else None
+    return propagate_uncertainty(design, wl, samples=samples, seed=seed,
+                                 default_pct=default_pct, include_cost=include_cost,
+                                 volume=_volume(design, volume))
+
+
 def chip_cost_references(prefix: str = "") -> dict:
     """Show the price/process table (value, low-high range, unit, source, date, stale flag).
     prefix filters keys, e.g. 'wafer.', 'memory.', 'package.cowos', 'pcb.', 'sram_bitcell.'."""
@@ -1278,7 +1302,7 @@ def create_mcp_server() -> MCPServer:
                chip_estimate_cost, chip_cost_references, chip_price_lookup_plan,
                chip_analyze_bottleneck, chip_get_results, search, fetch,
                get_digital_twin_run, list_ip_catalog, list_pdk_ladder, list_private_pdks,
-               simulate_ecore_array):
+               simulate_ecore_array, chip_uncertainty):
         mcp.tool(annotations=read_only)(fn)
     mcp.tool(name="chip_sweep_parameters", annotations=writes)(_chip_sweep_parameters_tool)
     for fn in (chip_design_from_template, chip_create_design, chip_evaluate,

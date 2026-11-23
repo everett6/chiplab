@@ -116,3 +116,34 @@ class DesignSpec(BaseModel):
         if d.get("constraints") == PhysicalConstraints().model_dump(by_alias=False, exclude_none=True):
             d.pop("constraints")
         return yaml.dump({"design": d}, default_flow_style=False, sort_keys=False)
+
+def plain_design(design: DesignSpec) -> tuple[DesignSpec, list[dict[str, Any]]]:
+    """Return a copy of ``design`` with every TrackedValue replaced by its plain value, plus
+    one provenance record per replaced field ({parameter, value, unit, provenance, source,
+    uncertainty_pct, notes}). Engines and the cost model work on plain numbers; the records
+    keep where each number came from. A design without TrackedValues comes back as is."""
+    from .common import TrackedValue
+
+    records: list[dict[str, Any]] = []
+
+    def strip(obj: Any, path: str) -> Any:
+        if isinstance(obj, TrackedValue):
+            records.append({"parameter": path, "value": obj.value, "unit": obj.unit,
+                            "provenance": obj.provenance, "source": obj.source,
+                            "uncertainty_pct": obj.uncertainty_pct, "notes": obj.notes})
+            return obj.value
+        if isinstance(obj, BaseModel):
+            changed = {}
+            for name in type(obj).model_fields:
+                val = getattr(obj, name)
+                new = strip(val, f"{path}.{name}" if path else name)
+                if new is not val:
+                    changed[name] = new
+            return obj.model_copy(update=changed) if changed else obj
+        if isinstance(obj, list):
+            items = [strip(v, f"{path}[{i}]") for i, v in enumerate(obj)]
+            return items if any(a is not b for a, b in zip(items, obj)) else obj
+        return obj
+
+    out = strip(design, "")
+    return out, records

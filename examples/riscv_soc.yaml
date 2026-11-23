@@ -33,7 +33,7 @@ design:
         technology: "LPDDR5"
         capacity_per_chiplet_gb: 4.0
         channels: 2
-        bandwidth_per_channel_gbps: 12.8   # GB/s per x32 channel at 6400 MT/s
+        bandwidth_per_channel_gbps: 12.8   # GB/s per x16 channel at 6400 MT/s (JEDEC LPDDR5)
         latency_ns: 110.0
         energy_pj_per_bit: 5.0
   interconnect:

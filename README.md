@@ -36,8 +36,8 @@ Output (edge NPU, N4 + LPDDR5X, 8B-parameter decode):
 | peak compute | 40 TOPS |
 | decode throughput | 8.5 tokens/s (memory-bandwidth bound) |
 | power / temperature | 5.0 W / 55 C |
-| unit cost | $85 typical ($59 to $167) |
-| efficiency | 8.0 TOPS/W, $2.13 per peak TOPS |
+| unit cost | $85 typical ($59 to $166) |
+| efficiency | 8.0 TOPS/W, $2.12 per peak TOPS |
 | constraints | power, temperature and cost all pass |
 
 Then connect an agent (see [MCP setup](#mcp-setup-claude-code-codex-gemini-cli-chatgpt)) and
@@ -216,6 +216,18 @@ arguments, and `tests/test_prompts.py` runs every chain:
 
 `chip_sweep_parameters` streams MCP progress notifications (one per ~2% of points) and caps
 Cartesian sweeps at 5,000 points; use `run_digital_twin_search` for larger spaces.
+
+### Validation and uncertainty
+
+- `tests/test_validation_golden.py` checks the models against published and independent
+  references: TSMC SRAM bitcell areas (IEDM), exact dies-per-wafer placement, the Poisson
+  limit of the yield model, JEDEC HBM3 / LPDDR5 bandwidth, the bandwidth bound for H100-class
+  decode, and the thermal identity. Sources and tolerances: [docs/validation.md](docs/validation.md).
+- `chip_uncertainty` (MCP, read-only) propagates input uncertainty to 5/50/95th-percentile
+  bands on TOPS, tokens/s, latency, power, temperature, energy and unit cost, and ranks the
+  inputs that drive each output. A `TrackedValue`'s `uncertainty_pct` is used when given,
+  else a default by provenance. Any numeric field in a design can be a `TrackedValue`:
+  `{"value": 1979, "provenance": "published", "source": "...", "uncertainty_pct": 5}`.
 
 ### Cost model (`src/chiplab/cost/`)
 - **Logic dies**: TSMC wafer price per node (N40 down to A16), dies per wafer, and

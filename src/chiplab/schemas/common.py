@@ -39,6 +39,17 @@ class TrackedValue(BaseModel):
     uncertainty_pct: float | None = None
     notes: str | None = None
 
+    # Models call float()/int() and truth tests on spec fields; a TrackedValue must behave
+    # like its number there, or any design that uses provenance/uncertainty crashes.
+    def __float__(self) -> float:
+        return float(self.value)
+
+    def __int__(self) -> int:
+        return int(self.value)
+
+    def __bool__(self) -> bool:
+        return bool(self.value)
+
 
 # Type aliases
 ParamFloat = float | int | TrackedValue

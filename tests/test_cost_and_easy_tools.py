@@ -54,7 +54,9 @@ def test_node_memory_and_package_mapping():
 # --- physics of cost -----------------------------------------------------------------------
 
 def test_dies_per_wafer_and_yield():
-    assert 55 <= model.dies_per_wafer(814) <= 66  # reticle-class die on 300 mm
+    # Reticle-class square die on 300 mm: exact placement gives 68 (the old closed-form
+    # approximation gave 60); tests/test_validation_golden.py checks it against brute force.
+    assert 60 <= model.dies_per_wafer(814) <= 70
     assert model.dies_per_wafer(100) > 8 * model.dies_per_wafer(814)
     assert model.die_yield(1, 0.1) > 0.99
     assert model.die_yield(800, 0.1) < model.die_yield(100, 0.1)

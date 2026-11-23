@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 import json
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -174,7 +175,8 @@ class ExperimentStore:
         result_json = result.model_dump_json()
 
         if not result.run_id:
-            result.run_id = f"{result.design_name}_{result.design_version}_{int(time.time())}"
+            result.run_id = (f"{result.design_name}_{result.design_version}_{int(time.time())}_"
+                             f"{uuid.uuid4().hex[:6]}")
 
         fidelity_str = result.fidelity.value if hasattr(result.fidelity, "value") else str(result.fidelity)
         self._conn.execute(

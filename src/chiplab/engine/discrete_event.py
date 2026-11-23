@@ -29,6 +29,7 @@ import heapq
 import math
 import random
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -454,8 +455,11 @@ def run_discrete_event_simulation(
     from ..engine.validator import validate_design
     from ..schemas.workload import expand_workload_operators, is_llm_decode
 
-    run_id = f"discrete_event_{design_id}_{int(time.time())}"
+    run_id = f"discrete_event_{design_id}_{int(time.time())}_{uuid.uuid4().hex[:6]}"
     from ..backends.ecore import apply_ecore_to_design
+    from ..schemas.design import plain_design
+    original_design = design  # with TrackedValues: the analytical pass records their provenance
+    design, _ = plain_design(design)
     design, _, _ = apply_ecore_to_design(design)  # eCore PIM numbers; recorded by analytical
     validation = validate_design(design, config.allow_estimated_defaults)
 
@@ -475,7 +479,7 @@ def run_discrete_event_simulation(
         return _fail("design validation failed", validation.errors, validation.warnings)
 
     wl = workload if workload is not None else WorkloadSpec()
-    base = run_analytical_simulation(design, wl, config, design_id)  # static metrics
+    base = run_analytical_simulation(original_design, wl, config, design_id)  # static metrics
     if not base.success:
         return _fail("analytical models failed", [base.error_message or "unknown"],
                      base.warnings)

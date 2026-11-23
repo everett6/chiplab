@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import uuid
 from typing import Any
 
 from chiplab.schemas.design import DesignSpec, ChipletSpec
@@ -143,11 +144,15 @@ def run_analytical_simulation(
     fidelity_disclaimer="Level 1 analytical model: theoretical roofline and first-order
     estimates; not cycle-accurate.".
     """
-    run_id = f"analytical_{design_id}_{int(time.time())}"
+    run_id = f"analytical_{design_id}_{int(time.time())}_{uuid.uuid4().hex[:6]}"
     from chiplab.backends.ecore import apply_ecore_to_design
+    from chiplab.schemas.design import plain_design
+    # TrackedValues become plain numbers for the models; their provenance is kept here.
+    design, tracked = plain_design(design)
     # PIM chiplets with a compute.ecore block take their numbers from Echo Lab's eCore.
     design, ecore_records, ecore_warnings = apply_ecore_to_design(design)
-    assumptions: list[AssumptionRecord] = list(ecore_records)
+    assumptions: list[AssumptionRecord] = [AssumptionRecord(**t) for t in tracked]
+    assumptions.extend(ecore_records)
     warnings: list[str] = list(ecore_warnings)
 
     total_chiplets = sum(c.count for c in design.chiplets)

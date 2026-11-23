@@ -1,7 +1,8 @@
 """Unit-cost model: die yield and cost per node, bought memory, packaging, test, board, NRE.
 
 Formulas
-- Dies per wafer: pi*(d/2)^2/A - pi*d/sqrt(2A), on the usable diameter (edge exclusion).
+- Dies per wafer: exact grid placement of square dies (+ scribe) inside the usable
+  diameter (edge exclusion), best of 8x8 placement offsets.
 - Die yield: negative binomial, Y = (1 + A*D0/alpha)^-alpha, A in cm2, alpha = 3.
 - Known-good-die cost: wafer cost * (1 + sort fraction) / (dies per wafer * yield).
 - Package: base + interposer/substrate $/mm2 * area + per-die attach; divided by the
@@ -13,6 +14,7 @@ end of its range that raises cost).
 from __future__ import annotations
 
 import math
+from functools import lru_cache
 from typing import Any
 
 from chiplab.schemas.common import unwrap_value
@@ -46,13 +48,31 @@ def _pv(key: str, scenario: str) -> float:
     return prices.value(key, "high" if pessimistic else "low")
 
 
+@lru_cache(maxsize=4096)
 def dies_per_wafer(die_area_mm2: float, wafer_diameter_mm: float = WAFER_DIAMETER_MM) -> int:
+    """Gross dies per wafer: exact count of square dies (plus scribe) that fit entirely inside
+    the usable wafer circle, best of an 8x8 grid of placement offsets.
+
+    The closed-form approximation pi*d^2/(4S) - pi*d/sqrt(2S) undercounts large dies (by ~9%
+    at 400 mm2 and ~12% at 800 mm2), which overstated reticle-class die cost."""
     if die_area_mm2 <= 0:
         raise ValueError("die area must be positive")
-    side = math.sqrt(die_area_mm2) + SCRIBE_MM
-    a = side * side
-    d = wafer_diameter_mm - 2 * EDGE_EXCLUSION_MM
-    return max(0, int(math.pi * (d / 2) ** 2 / a - math.pi * d / math.sqrt(2 * a)))
+    import numpy as np
+    s = math.sqrt(die_area_mm2) + SCRIBE_MM
+    r = wafer_diameter_mm / 2 - EDGE_EXCLUSION_MM
+    n = int(2 * r // s) + 2
+    steps = 8
+    best = 0
+    for ox in range(steps):
+        lo_x = -r + ox * s / steps + s * np.arange(n)
+        mx2 = np.maximum(lo_x ** 2, (lo_x + s) ** 2)
+        mx2 = mx2[lo_x + s <= r]
+        for oy in range(steps):
+            lo_y = -r + oy * s / steps + s * np.arange(n)
+            my2 = np.maximum(lo_y ** 2, (lo_y + s) ** 2)
+            my2 = my2[lo_y + s <= r]
+            best = max(best, int((mx2[:, None] + my2[None, :] <= r * r).sum()))
+    return best
 
 
 def die_yield(die_area_mm2: float, d0_per_cm2: float, alpha: float = YIELD_ALPHA) -> float:
@@ -119,6 +139,8 @@ def estimate_unit_cost(design: DesignSpec, volume: int = 100_000, scenario: str 
     """Estimate per-unit cost of a design. ``board`` adds a PCB/VRM/cooling estimate:
     {"area_cm2": 300, "layers": 12, "hdi": False, "high_speed": True, "units_per_board": 1}.
     """
+    from ..schemas.design import plain_design
+    design, _ = plain_design(design)
     if scenario not in ("value", "low", "high"):
         raise ValueError("scenario must be 'value', 'low' or 'high'")
     if volume <= 0:

@@ -133,6 +133,8 @@ def _check_chiplet(chiplet: ChipletSpec, allow_defaults: bool, errors: list[str]
 
 def validate_design(design: DesignSpec, allow_estimated_defaults: bool = True) -> ValidationResult:
     """Validate a DesignSpec for contradictions and physical limits."""
+    from ..schemas.design import plain_design
+    design, _ = plain_design(design)
     errors: list[str] = []
     warnings: list[str] = []
     missing: list[str] = []
