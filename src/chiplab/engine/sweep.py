@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import itertools
+import math
+from collections.abc import Callable
 from typing import Any
+
+# Cartesian sweeps grow fast; beyond this, use run_digital_twin_search (sampled search).
+MAX_SWEEP_POINTS = 5000
 
 from ..schemas.design import DesignSpec
 from ..schemas.simulation import (
@@ -184,8 +189,12 @@ def run_parameter_sweep(
     parameters: dict[str, list[Any]],
     objective: str = "throughput_tokens_per_sec",
     design_id: str = "unsaved",
+    progress: Callable[[int, int], None] | None = None,
 ) -> SweepResult:
     """Run a parameter sweep over the Cartesian product of given parameters.
+
+    ``progress(done, total)`` is called after each point (MCP progress notifications).
+    Raises ValueError if the sweep exceeds MAX_SWEEP_POINTS points.
 
     Generates all combinations using itertools.product, runs simulations,
     and returns a SweepResult with the best point based on the objective.
@@ -229,6 +238,12 @@ def run_parameter_sweep(
             objective=objective,
         )
 
+    total = math.prod(len(v) for v in param_values)
+    if total > MAX_SWEEP_POINTS:
+        raise ValueError(
+            f"Sweep has {total} points (> {MAX_SWEEP_POINTS}). Narrow the value lists, or use "
+            "run_digital_twin_search for sampled search over large spaces.")
+
     points = []
     # Track best based on objective
     # We need to know if we're minimizing or maximizing
@@ -261,6 +276,8 @@ def run_parameter_sweep(
             bound_type=result.bottleneck.bound_type,
         )
         points.append(point)
+        if progress is not None:
+            progress(len(points), total)
 
         # Update best and store fidelity_disclaimer
         if best_point is None:

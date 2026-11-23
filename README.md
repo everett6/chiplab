@@ -194,6 +194,22 @@ call it from Python, e.g. `from chiplab.mcp_server import chip_evaluate`.
 Templates: `edge_npu` (N4 + LPDDR5X, FCBGA), `llm_accelerator_hbm3e` (2x N3 + 8x HBM3E,
 CoWoS-L), `chiplet_cpu` (8x N3 CCD + N6 IOD, organic).
 
+### Ready-made workflows (MCP prompts)
+
+Pick one from your client's prompt menu (`/` in Claude Code); each names the exact tools and
+arguments, and `tests/test_prompts.py` runs every chain:
+
+| prompt | what it does |
+|---|---|
+| `moe_decode_chiplet_balance` | compute dies vs HBM stacks for MoE decode under a unit-cost cap |
+| `riscv_soc_power_area_tradeoff` | NSGA-II + Monte Carlo Pareto search for a RISC-V SoC |
+| `hbm_accelerator_cost_per_token` | best tokens/s per $1k for dense LLM decode |
+| `analog_pim_feasibility` | eCore array accuracy/energy check, then a PIM chiplet built on it |
+| `explore_architecture` | generic create, validate, simulate, sweep, compare loop |
+
+`chip_sweep_parameters` streams MCP progress notifications (one per ~2% of points) and caps
+Cartesian sweeps at 5,000 points; use `run_digital_twin_search` for larger spaces.
+
 ### Cost model (`src/chiplab/cost/`)
 - **Logic dies**: TSMC wafer price per node (N40 down to A16), dies per wafer, and
   negative-binomial yield from the node's defect density. SRAM area comes from the

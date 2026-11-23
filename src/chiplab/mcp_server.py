@@ -7,7 +7,7 @@ import sys
 import json
 from typing import Any, Dict, List, Optional
 
-from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver import Context, MCPServer
 
 # --- Database path configuration ---
 DB_PATH = os.environ.get("CHIPLAB_DB_PATH", "chiplab_experiments.db")
@@ -271,11 +271,13 @@ def chip_sweep_parameters(
     fidelity: str = "analytical",
     objective: str = "throughput_tokens_per_sec",
     version: str | None = None,
+    progress: Any = None,
 ) -> dict:
-    """Run parameter sweep for a design.
-
-    Runs run_parameter_sweep, persists sweep, returns summary.
-    """
+    """Sweep a saved design over the Cartesian product of parameter values (dotted paths such
+    as "chiplets[0].count", "interconnect.link_bandwidth_gbps", "workload.batch_size"), up to
+    5,000 points, and return every point plus the best one for `objective`. Progress is
+    streamed to MCP clients that send a progress token. For larger spaces use
+    run_digital_twin_search."""
     # Get the design
     design_id, design_spec = store.get_design(design_id_or_name)
 
@@ -300,6 +302,7 @@ def chip_sweep_parameters(
         parameters=parameters,
         objective=objective,
         design_id=design_id,
+        progress=progress,
     )
 
     store.save_sweep(result, design_id=design_id)
@@ -316,6 +319,33 @@ def chip_sweep_parameters(
         "best_point": result.best_point.model_dump() if result.best_point else None,
         "objective": result.objective,
     }
+
+
+async def _chip_sweep_parameters_tool(
+    design_id_or_name: str,
+    parameters: dict[str, list],
+    workload: dict | None = None,
+    fidelity: str = "analytical",
+    objective: str = "throughput_tokens_per_sec",
+    version: str | None = None,
+    ctx: Context | None = None,
+) -> dict:
+    """MCP wrapper: runs the sweep in a worker thread and reports progress per point."""
+    import anyio
+    import anyio.from_thread
+
+    def report(done: int, total: int) -> None:
+        # At most ~50 notifications per sweep, plus the final one.
+        if ctx is not None and (done == total or done % max(1, total // 50) == 0):
+            anyio.from_thread.run(ctx.report_progress, done, total,
+                                  f"{done}/{total} sweep points")
+
+    return await anyio.to_thread.run_sync(
+        lambda: chip_sweep_parameters(design_id_or_name, parameters, workload, fidelity,
+                                      objective, version, progress=report))
+
+
+_chip_sweep_parameters_tool.__doc__ = chip_sweep_parameters.__doc__
 
 
 def chip_compare_designs(run_ids: list[str]) -> dict:
@@ -1250,8 +1280,9 @@ def create_mcp_server() -> MCPServer:
                get_digital_twin_run, list_ip_catalog, list_pdk_ladder, list_private_pdks,
                simulate_ecore_array):
         mcp.tool(annotations=read_only)(fn)
+    mcp.tool(name="chip_sweep_parameters", annotations=writes)(_chip_sweep_parameters_tool)
     for fn in (chip_design_from_template, chip_create_design, chip_evaluate,
-               chip_run_simulation, chip_sweep_parameters, chip_compare_designs,
+               chip_run_simulation, chip_compare_designs,
                chip_export_report, chip_set_price, chip_clear_price,
                run_digital_twin_search, calibrate_from_eda_report, ingest_byo_pdk,
                export_pareto_handoff_bundle, design_onchip_memory_subsystem):
@@ -1267,6 +1298,9 @@ def create_mcp_server() -> MCPServer:
 
     # Register prompts
     mcp.prompt("explore_architecture")(explore_architecture)
+    from chiplab.prompts import PROMPTS
+    for prompt_fn in PROMPTS:
+        mcp.prompt(prompt_fn.__name__)(prompt_fn)
 
     return mcp
 

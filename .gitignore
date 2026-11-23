@@ -30,3 +30,5 @@ chiplab_experiments.db*
 *.swp
 .idea/
 .vscode/
+# Handoff bundles written by export_pareto_handoff_bundle
+chiplab_exports/
