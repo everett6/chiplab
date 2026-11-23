@@ -3,7 +3,7 @@
 <!-- mcp-name: io.github.everett6/chiplab -->
 
 [![CI](https://github.com/everett6/chiplab/actions/workflows/ci.yml/badge.svg)](https://github.com/everett6/chiplab/actions/workflows/ci.yml)
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Python 3.11-3.13](https://img.shields.io/badge/python-3.11--3.13-blue.svg)
 
 Chip architecture exploration for coding agents. ChipLab is an MCP server (and Python
@@ -41,30 +41,25 @@ Output (edge NPU, N4 + LPDDR5X, 8B-parameter decode):
 | constraints | power, temperature and cost all pass |
 
 Then connect an agent (see [MCP setup](#mcp-setup-claude-code-codex-gemini-cli-chatgpt)) and
-ask it to design something: it will call `chip_quickstart`, `chip_design_from_template` /
-`chip_create_design` and `chip_evaluate`.
+ask it to design something: it will call `chip_quickstart`, `chip_design_from_template`
+/`chip_create_design` and `chip_evaluate`.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    A["Agent<br/>(Claude Code, Codex, Gemini, ChatGPT)"] -- MCP stdio / HTTP --> M["mcp_server.py<br/>tools, resources, prompts"]
-    W["Web app<br/>GPU Studio + Live"] --> M
-    M --> S["schemas<br/>DesignSpec, WorkloadSpec,<br/>TrackedValue + provenance"]
-    M --> E["engine<br/>L1 analytical roofline<br/>L2 discrete-event<br/>sweeps, digital twin"]
-    E --> MD["models<br/>memory, compute, interconnect,<br/>packaging, power/thermal"]
-    M --> C["cost<br/>wafers, yield, HBM/DRAM,<br/>packaging, test, NRE"]
-    E --> B["backends<br/>eCore (analog DRAM CIM)<br/>Ramulator / SCALE-Sim / Accel-Sim<br/>(detected only)"]
-    M --> X[("experiments<br/>SQLite store")]
-    M --> R["results<br/>Markdown / JSON / CSV"]
+    A["Coding Agent (Codex / Claude Code)"] <--> M["MCP Server"]
+    M <--> E["Engine (Analytical / Discrete-Event)"]
+    E <--> X["Models & ExperimentStore (SQLite)"]
 ```
 
 ### Schema Layer (`src/chiplab/schemas/`)
+
 - **DesignSpec**: Heterogeneous hardware design specification with support for chiplets, memory specs, compute specs, packages, and interconnects
 - **Common**: Provenance tracking (`Provenance` enum: measured, published, estimated, assumed) and value unwrapping (`unwrap_value`, `get_provenance`)
-- **Simulation**: Simulation configuration, metrics, bottleneck reports, and comparison results
 
 ### Engine Layer (`src/chiplab/engine/`)
+
 - **Analytical**: Level 1 roofline model simulation with fidelity `FidelityLevel.ANALYTICAL`
 - **Discrete-Event**: Level 2 tile-level discrete-event simulation (`FidelityLevel.DISCRETE_EVENT`,
   heap-driven, no SimPy). Each request runs the workload's operators in order; each operator
@@ -81,19 +76,23 @@ flowchart LR
 - **Analyzer**: Bottleneck analysis and result comparison
 
 ### Models Layer (`src/chiplab/models/`)
+
 - Physical models for memory, compute, interconnect, packaging, and power/thermal estimation
 - Component library with default values and assumption tracking
 
 ### Results Layer (`src/chiplab/results/`)
+
 - Report export in Markdown, JSON, and CSV formats
 - Simulation result, comparison, and sweep reporting
 
 ### Experiments Layer (`src/chiplab/experiments/`)
+
 - SQLite-backed persistence for designs, simulations, sweeps, and comparisons
 - Design versioning support (parent_version tracking)
 - Save/get operations for all result types
 
 ### Backends (`src/chiplab/backends/`)
+
 - **eCore** (integrated, array level): Echo Lab's SPICE-calibrated analog DRAM
   compute-in-memory simulator. PIM chiplets with a `compute.ecore` block take their compute
   rate, energy/op, power and area from it; MCP tool `simulate_ecore_array`. Optional: tests
@@ -105,7 +104,9 @@ flowchart LR
   `warnings`.
 
 ### YAML Design Files
+
 ChipLab uses YAML design specifications that can be loaded via `DesignSpec.from_yaml()`:
+
 - `projects/echo/echo_v0_1.yaml`: Baseline DRAM-PIM + digital compute design
 - `projects/echo/echo_v0_2.yaml`: Updated version with HBM3 memory option
 - `projects/echo/echo_v0_1_ecore.yaml`: v0.1 with PIM numbers from the eCore simulator
@@ -120,8 +121,8 @@ Each new example carries a `metadata.workload_hint` to pass to `chip_evaluate`, 
 
 ## Installation
 
-ChipLab is not on PyPI yet (a release workflow is ready in `.github/workflows/publish.yml`).
-Install from source:
+ChipLab is not on PyPI yet (a release workflow is ready in `.github/workflows/publish.yml`). Install from source:
+
 ```bash
 git clone https://github.com/everett6/chiplab.git
 cd chiplab
@@ -129,8 +130,21 @@ python -m venv .venv && . .venv/bin/activate
 python -m pip install -e ".[dev]"
 python -m pytest -q
 ```
+
+*Current install method until published to PyPI: `pip install -e .` or `uv pip install -e .*"
+
+```bash
+git clone https://github.com/everett6/chiplab.git
+cd chiplab
+python -m venv .venv && . .venv/bin/activate
+python -m pip install -e ".[dev]"
+python -m pytest -q
+```
+
 Optional: [Verilator](https://verilator.org) 5.x enables the RTL tests; Echo Lab enables the
 eCore backend. Both are skipped when missing.
+
+*Current install method until published to PyPI: `pip install -e .` or `uv pip install -e .*"
 
 ## MCP Setup (Claude Code, Codex, Gemini CLI, ChatGPT)
 
@@ -143,15 +157,19 @@ web needs it over HTTP behind a public HTTPS URL. Set `CHIPLAB_DB_PATH` so every
 shares one design database (otherwise it is created in the client's working directory).
 
 ### Claude Code
+
 ```bash
 claude mcp add --scope user chiplab -e CHIPLAB_DB_PATH="/path/to/chiplab/chiplab_experiments.db" -- "/path/to/chiplab/.venv/bin/chiplab-mcp"
 ```
 
 ### Codex CLI / Codex IDE extension
+
 ```bash
 codex mcp add chiplab --env CHIPLAB_DB_PATH="/path/to/chiplab/chiplab_experiments.db" -- "/path/to/chiplab/.venv/bin/chiplab-mcp"
 ```
+
 Or add this to `~/.codex/config.toml`:
+
 ```toml
 [mcp_servers.chiplab]
 command = "/path/to/chiplab/.venv/bin/chiplab-mcp"
@@ -159,7 +177,9 @@ env = { CHIPLAB_DB_PATH = "/path/to/chiplab/chiplab_experiments.db" }
 ```
 
 ### Gemini CLI
+
 Add to `~/.gemini/settings.json`:
+
 ```json
 {
   "mcpServers": {
@@ -172,6 +192,7 @@ Add to `~/.gemini/settings.json`:
 ```
 
 ### ChatGPT (web/desktop, Developer mode connector)
+
 1. Run the server over HTTP:
    ```bash
    "/path/to/chiplab/.venv/bin/chiplab-mcp" --transport streamable-http --port 8000
@@ -185,6 +206,7 @@ The HTTP server has no login. Anyone with the URL can use it, so only run the tu
 you are using it. `search` and `fetch` tools are included for ChatGPT's connector format.
 
 ### Codex cloud (chatgpt.com/codex)
+
 Cloud tasks run in a container built from the repository and cannot reach a server on your
 computer. Install the package in the environment's setup script (`pip install -e .`) and
 call it from Python, e.g. `from chiplab.mcp_server import chip_evaluate`.
@@ -201,7 +223,7 @@ call it from Python, e.g. `from chiplab.mcp_server import chip_evaluate`.
 Templates: `edge_npu` (N4 + LPDDR5X, FCBGA), `llm_accelerator_hbm3e` (2x N3 + 8x HBM3E,
 CoWoS-L), `chiplet_cpu` (8x N3 CCD + N6 IOD, organic).
 
-### Ready-made workflows (MCP prompts)
+## Ready-made workflows (MCP prompts)
 
 Pick one from your client's prompt menu (`/` in Claude Code); each names the exact tools and
 arguments, and `tests/test_prompts.py` runs every chain:
@@ -217,7 +239,7 @@ arguments, and `tests/test_prompts.py` runs every chain:
 `chip_sweep_parameters` streams MCP progress notifications (one per ~2% of points) and caps
 Cartesian sweeps at 5,000 points; use `run_digital_twin_search` for larger spaces.
 
-### Validation and uncertainty
+## Validation and uncertainty
 
 - `tests/test_validation_golden.py` checks the models against published and independent
   references: TSMC SRAM bitcell areas (IEDM), exact dies-per-wafer placement, the Poisson
@@ -230,6 +252,7 @@ Cartesian sweeps at 5,000 points; use `run_digital_twin_search` for larger space
   `{"value": 1979, "provenance": "published", "source": "...", "uncertainty_pct": 5}`.
 
 ### Cost model (`src/chiplab/cost/`)
+
 - **Logic dies**: TSMC wafer price per node (N40 down to A16), dies per wafer, and
   negative-binomial yield from the node's defect density. SRAM area comes from the
   published HD bitcell size and array efficiency. Mask-set NRE is spread over the volume.
@@ -242,9 +265,11 @@ Cartesian sweeps at 5,000 points; use `run_digital_twin_search` for larger space
   optimistic and pessimistic cost.
 
 ### Live prices
+
 Foundries and memory makers don't publish prices, so the built-in figures are dated
 industry estimates. Each one shows its source and date in `chip_cost_references`, and any
 figure older than 180 days is marked stale. To refresh them:
+
 - **With web search** (Claude, ChatGPT, Gemini, Codex): call `chip_price_lookup_plan`
   to get one search query per stale price. Search each one, then call
   `chip_set_price(key, value, source_url, as_of)`.
@@ -277,7 +302,7 @@ Modes, all driven by simulator output (nothing decorative):
 | Airflow | fan flow → fin-channel velocity → convection coefficient → heatsink resistance and air temperature rise |
 
 One design is the source of truth: the **Memory Packaging Studio** panel (stack count, dies
-per stack, capacity, channels, bandwidth, footprint, die/bond thickness, TSV and microbump
+per stack, capacity, channels, footprint, die/bond thickness, TSV and microbump
 pitch, spacing, interposer margin, temperature limits, fans, fins) and drag-to-move
 placement write to the design (in place, or as a new version), then every mode re-simulates.
 Edits are validated; invalid ones are rejected. When an MCP agent changes the open design,
@@ -293,8 +318,10 @@ OpenFOAM (CFD). The thermal and airflow models are first-order engineering model
 ```bash
 cd /path/to/chiplab && .venv/bin/chiplab-app --open
 ```
+
 This opens http://127.0.0.1:8770. Every MCP tool call from every connected agent (Claude Code,
 Codex, Gemini CLI, ChatGPT) is written to the shared database and streams into the page:
+
 - **Agent activity**: a live feed with the client name, the tool, the design and a one-line
   result (cost, tok/s, TOPS, watts, failed constraints).
 - **Designs**: the package floorplan (dies to scale, HBM stacks, interposer), headline
@@ -314,10 +341,8 @@ Codex, Gemini CLI, ChatGPT) is written to the shared database and streams into t
     the memory knobs. PPA, cost, slack, temperature, refresh and PIM throughput update
     live, with the node's accuracy band. "Search around this point" runs NSGA-II plus
     Monte Carlo and opens the result in the Digital twin tab.
-  - *Simulate this design* (Designs tab): run an agent's design through the analytical
-    or discrete-event engine with an LLM workload. Results are not saved.
-"Follow live" jumps to whatever an agent is working on. Use `--db` to point at another
-database (default: `$CHIPLAB_DB_PATH` or `./chiplab_experiments.db`).
+- "Follow live" jumps to whatever an agent is working on. Use `--db` to point at another
+  database (default: `$CHIPLAB_DB_PATH` or `./chiplab_experiments.db`).
 
 ## Zero-token digital twin
 
@@ -373,6 +398,7 @@ black boxes, with `metadata.intended_use = "commercial"`.
 
 `design_onchip_memory_subsystem` models multi-bank 6T SRAM and 2T/3T gain-cell eDRAM on any
 ladder node. It reports:
+
 - area, fmax and slack
 - retention (halving every 18 °C), refresh overhead and stall %
 - bank-conflict rate and port contention
@@ -381,6 +407,7 @@ ladder node. It reports:
 A deterministic cycle-accurate simulator cross-checks the analytical model: conflict rate
 agrees within 0.06 absolute and throughput within 12% up to saturation, and the tests
 enforce this. With `generate_rtl=true` it writes SystemVerilog-2012 to `CHIPLAB_EXPORT_DIR`:
+
 - `onchip_mem_subsystem_top.sv`: crossbar, interleaver (low-order, XOR or block),
   round-robin or priority arbiter per bank, auto-refresh controller with a deadline
   assertion, SECDED encoder/decoder (XOR trees generated from the same tables as the
@@ -393,6 +420,7 @@ enforce this. With `generate_rtl=true` it writes SystemVerilog-2012 to `CHIPLAB_
 
 Verified with Verilator 5.032 (`tests/test_rtl_verilator.py`, skipped if Verilator is not
 installed):
+
 - `verilator --lint-only -Wall` is clean, and the self-checking testbench passes across
   SRAM and eDRAM, 2–16 banks, all interleave and arbiter modes, ECC on and off, and
   PIM 4/8-bit.
@@ -410,6 +438,7 @@ across the ladder. It adds a refresh-violation probability to the robustness sco
 ## Private (NDA) PDKs
 
 `ingest_byo_pdk` and `calibrate_from_eda_report` default to `private=True`:
+
 - The compiled profile (numbers and calibration factors only) is saved to
   `.chiplab_private_pdks/`, override with `CHIPLAB_PRIVATE_PDK_DIR`. The folder is
   created 0700 with its own `.gitignore` (`*`) and is appended to the project's
@@ -425,6 +454,7 @@ the names.
 ## Example Workflow
 
 ### 1. Load a Design Spec
+
 ```python
 from chiplab.schemas.design import DesignSpec
 
@@ -435,6 +465,7 @@ design = DesignSpec.from_yaml(yaml.dump(data))
 ```
 
 ### 2. Validate the Design
+
 ```python
 from chiplab.engine.validator import validate_design
 
@@ -446,6 +477,7 @@ else:
 ```
 
 ### 3. Run an Analytical Simulation
+
 ```python
 from chiplab.schemas.workload import WorkloadSpec
 from chiplab.schemas.simulation import SimulationConfig, FidelityLevel
@@ -475,6 +507,7 @@ print(f"Bottleneck: {result.bottleneck.primary_bottleneck}")
 ```
 
 ### 4. Run a Discrete-Event Simulation
+
 ```python
 from chiplab.engine.discrete_event import run_discrete_event_simulation
 
@@ -490,6 +523,7 @@ print(f"Latency: {result.metrics.estimated_latency_ms:.2f} ms")
 ```
 
 ### 5. Save Results to Experiment Store
+
 ```python
 from chiplab.experiments.store import ExperimentStore
 import tempfile
@@ -511,6 +545,7 @@ retrieved_sim = store.get_simulation(sim_id)
 ```
 
 ### 6. Export Reports
+
 ```python
 from chiplab.results.reporter import export_simulation_report
 
@@ -530,14 +565,17 @@ with open("report.csv", "w") as f:
 ## YAML Design Files
 
 ### echo_v0_1.yaml
+
 Heterogeneous DRAM-PIM + digital compute chiplet design for MoE decode baseline version.
 
 ### echo_v0_2.yaml
+
 Updated version with improved PIM efficiency and HBM3 memory option, parent_version: "0.1".
 
 ### transformer_accelerator.yaml
+
 Generic architecture demonstrating ChipLab is not tied to ECHO designs: HBM3 + systolic array tensor engine.
 
 ## License
 
-Apache-2.0, see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).

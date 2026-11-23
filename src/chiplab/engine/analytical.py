@@ -453,4 +453,40 @@ def run_analytical_simulation(
         success=True,
     )
 
+    # Compute uncertainty bounds from tracked values
+    uncertainty_metrics: dict[str, list[float]] = {}
+    for rec in assumptions:
+        unc_pct = rec.uncertainty_pct
+        if unc_pct is not None:
+            param = rec.parameter
+            if 'area_mm2' in param.lower() or param.endswith('.area_mm2'):
+                uncertainty_metrics.setdefault('total_area_mm2', []).append(unc_pct)
+            elif 'tdp_watts' in param.lower() or param.endswith('.tdp_watts'):
+                uncertainty_metrics.setdefault('total_power_watts', []).append(unc_pct)
+            elif 'estimated_latency' in param.lower() or param.endswith('.estimated_latency_ms'):
+                uncertainty_metrics.setdefault('estimated_latency_ms', []).append(unc_pct)
+            elif 'cost' in param.lower() and 'usd' in param.lower():
+                uncertainty_metrics.setdefault('estimated_cost_usd', []).append(unc_pct)
+
+    def compute_rss_uncertainty(uncertainties):
+        if not uncertainties:
+            return {'nominal': 0.0, 'low': 0.0, 'high': 0.0, 'uncertainty_pct': 0.0}
+        rss_pct = sum(u**2 for u in uncertainties) ** 0.5
+        low = 1.0 - rss_pct / 100.0
+        high = 1.0 + rss_pct / 100.0
+        return {'nominal': 1.0, 'low': low, 'high': high, 'uncertainty_pct': rss_pct}
+
+    uncertainty_bounds = {}
+    for metric_name, pcts in uncertainty_metrics.items():
+        unc = compute_rss_uncertainty(pcts)
+        uncertainty_bounds[metric_name] = {
+            'low': unc['low'],
+            'nominal': unc['nominal'],
+            'high': unc['high'],
+            'uncertainty_pct': unc['uncertainty_pct'],
+        }
+
+    result.uncertainty_bounds = uncertainty_bounds
+
+
     return result

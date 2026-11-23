@@ -142,6 +142,12 @@ def _run_simulation(
         return analytical.run_analytical_simulation(design, workload, config)
     elif config.fidelity == FidelityLevel.DISCRETE_EVENT:
         return discrete_event.run_discrete_event_simulation(design, workload, config)
+    elif config.fidelity == FidelityLevel.SPECIALIZED:
+        from .specialized import SpecializedUnavailable, run_specialized_simulation
+        try:
+            return run_specialized_simulation(design, workload, config)
+        except SpecializedUnavailable:
+            return analytical.run_analytical_simulation(design, workload, config)
     else:
         # Fallback to analytical
         return analytical.run_analytical_simulation(design, workload, config)

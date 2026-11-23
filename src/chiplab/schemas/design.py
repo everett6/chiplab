@@ -43,6 +43,11 @@ class ComputeSpec(BaseModel):
     sram_mb: ParamFloat | None = None
     efficiency_factor: ParamFloat | None = None
     ecore: EcoreArraySpec | None = None
+    # Systolic-array geometry for SCALE-Sim (fidelity="specialized"). If omitted: square
+    # arrays of the largest power of two <= sqrt(mac_units), capped at 128, and the best of
+    # the three dataflows.
+    array_dim: int | None = Field(None, ge=4, le=1024)
+    dataflow: Literal["ws", "os", "is"] | None = None
 
 
 class ChipletSpec(BaseModel):

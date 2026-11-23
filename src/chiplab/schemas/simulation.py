@@ -87,6 +87,7 @@ class SimulationResult(BaseModel):
     raw_details: dict[str, Any] = Field(default_factory=dict)
     success: bool = True
     error_message: str | None = None
+    uncertainty_bounds: dict[str, dict[str, float]] = Field(default_factory=dict)
 
 
 class ValidationResult(BaseModel):
