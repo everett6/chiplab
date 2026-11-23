@@ -146,7 +146,8 @@ def test_app_endpoints(db):
                client="claude-code")
     log.record("run_digital_twin_search", {}, r, client="codex")
     client = TestClient(create_app(db))
-    assert "ChipLab Live" in client.get("/").text
+    assert "ChipLab Live" in client.get("/live").text
+    assert "GPU Studio" in client.get("/").text
     ev = client.get("/api/events").json()
     assert [e["tool"] for e in ev] == ["chip_evaluate", "run_digital_twin_search"]
     assert ev[0]["summary"].startswith("$80/unit") and "designs" in ev[1]["summary"]

@@ -195,6 +195,73 @@ def lab_design_sim(store: ExperimentStore, data: dict[str, Any]) -> dict[str, An
     return out
 
 
+STUDIO_WORKLOADS = {
+    "llm8_decode": {"name": "llm8_decode", "type": "llm_decode", "model_params_b": 8,
+                    "batch_size": 4},
+    "llm70_decode": {"name": "llm70_decode", "type": "llm_decode", "model_params_b": 70,
+                     "batch_size": 8},
+    "llm8_prefill": {"name": "llm8_prefill", "type": "llm_prefill", "model_params_b": 8,
+                     "batch_size": 1, "sequence_length": 2048},
+    "moe_decode": {"name": "moe_decode", "type": "moe_llm_decode", "model_params_b": 47,
+                   "batch_size": 8, "num_experts": 8, "active_experts": 2},
+}
+
+
+def studio_scene(store: ExperimentStore, design: str, workload: str = "llm8_decode") -> dict[str, Any]:
+    """Scene for GPU Studio: geometry + power + thermal + simulated activity of one design."""
+    from chiplab.schemas.workload import WorkloadSpec
+    from chiplab.studio.scene import build_scene
+
+    if workload not in STUDIO_WORKLOADS:
+        raise ValueError(f"unknown workload {workload!r}; choose from {sorted(STUDIO_WORKLOADS)}")
+    design_id, spec = store.get_design(design)
+    if not spec.chiplets:
+        raise ValueError("This design has no chiplets to show.")
+    scene = build_scene(spec, design_id, WorkloadSpec.model_validate(STUDIO_WORKLOADS[workload]))
+    scene["workloads"] = sorted(STUDIO_WORKLOADS)
+    scene["workload"] = workload
+    return scene
+
+
+def _next_version(store: ExperimentStore, name: str, version: str) -> str:
+    taken = {d["version"] for d in store.list_designs(name)}
+    parts = version.split(".")
+    while True:
+        try:
+            parts[-1] = str(int(parts[-1]) + 1)
+        except ValueError:
+            parts.append("1")
+        cand = ".".join(parts)
+        if cand not in taken:
+            return cand
+
+
+def studio_edit(store: ExperimentStore, data: dict[str, Any]) -> dict[str, Any]:
+    """Apply a studio edit (placement, stack/memory/package/cooling parameters) to a design.
+
+    Saves in place, or as a new version (parent_version set) when ``new_version`` is true.
+    The edited design is validated first; nothing is saved if it is invalid."""
+    from chiplab.engine.validator import validate_design
+    from chiplab.studio.scene import apply_edit
+
+    design_id, spec = store.get_design(str(data.get("design_id", "")))
+    patch = data.get("patch") or {}
+    if not isinstance(patch, dict):
+        raise ValueError("patch must be an object")
+    new = apply_edit(spec, patch)
+    v = validate_design(new, True)
+    if not v.valid:
+        raise ValueError("Edit rejected: " + "; ".join(v.errors))
+    if data.get("new_version"):
+        new.parent_version = spec.version
+        new.version = _next_version(store, spec.name, spec.version)
+        design_id = store.save_design(new)
+    else:
+        store.save_design(new, design_id)
+    return {"design_id": design_id, "version": new.version,
+            **studio_scene(store, design_id, str(data.get("workload", "llm8_decode")))}
+
+
 def lab_twin(store: ExperimentStore, data: dict[str, Any]) -> dict[str, Any]:
     from chiplab.engine.digital_twin import run_digital_twin
     from chiplab.schemas.digital_twin import DigitalTwinConfig, default_search_space
@@ -228,7 +295,22 @@ def create_app(db_path: str) -> Starlette:
     store = ExperimentStore(db_path)
 
     async def index(_: Request) -> FileResponse:
+        return FileResponse(STATIC / "studio.html")
+
+    async def live(_: Request) -> FileResponse:
         return FileResponse(STATIC / "index.html")
+
+    async def studio_js(_: Request) -> FileResponse:
+        return FileResponse(STATIC / "studio.js", media_type="text/javascript")
+
+    async def scene(request: Request) -> JSONResponse:
+        q = request.query_params
+        try:
+            data = await asyncio.to_thread(studio_scene, store, q.get("design", ""),
+                                           q.get("workload", "llm8_decode"))
+        except (ValueError, KeyError, TypeError) as exc:
+            return JSONResponse({"error": f"{exc}"[:600]}, status_code=400)
+        return JSONResponse(json.loads(json.dumps(data, default=str)))
 
     async def events(request: Request) -> JSONResponse:
         after = int(request.query_params.get("after", 0))
@@ -378,6 +460,10 @@ def create_app(db_path: str) -> Starlette:
               methods=["POST"]),
         Route("/api/lab/twin", _lab(lambda d: lab_twin(store, d)), methods=["POST"]),
         Route("/", index),
+        Route("/live", live),
+        Route("/studio.js", studio_js),
+        Route("/api/studio/scene", scene),
+        Route("/api/studio/edit", _lab(lambda d: studio_edit(store, d)), methods=["POST"]),
         Route("/api/events", events),
         Route("/api/stream", stream),
         Route("/api/designs", designs),
