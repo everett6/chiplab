@@ -32,3 +32,4 @@ chiplab_experiments.db*
 .vscode/
 # Handoff bundles written by export_pareto_handoff_bundle
 chiplab_exports/
+chiplab_layouts/

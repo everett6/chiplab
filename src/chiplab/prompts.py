@@ -108,3 +108,161 @@ def analog_pim_feasibility(rows: int = 256, cols: int = 256, precision: str = "i
 
 PROMPTS = (moe_decode_chiplet_balance, riscv_soc_power_area_tradeoff,
            hbm_accelerator_cost_per_token, analog_pim_feasibility)
+
+def create_custom_chip_from_idea(idea: str, target_node: str = "tsmc_n7") -> str:
+    """A guided prompt that walks ChatGPT through: describing the idea -> chip_design_from_nl -> chip_validate_design -> chip_full_flow -> reviewing results -> iterating.
+
+    Includes the exact tool call sequence for creating a custom chip from a natural language idea.
+    """
+    return """Goal: Create a custom chip from your idea: {idea}
+
+I'll walk you through the complete chip design workflow using ChipLab MCP tools.
+
+Step 1: Describe your idea in natural language
+-------------------------------------------
+Your idea: {idea}
+
+Step 2: Parse natural language into a Design Specification
+---------------------------------------------------------
+Tool call: chip_design_from_nl(description="{idea}", constraints={{'target_node': '{target_node}'}})
+
+This will parse your description and return a structured DesignSpec YAML with:
+- Architecture type (heterogeneous_accelerator, systolic, tensor_engine, etc.)
+- Chiplet types and counts (memory chiplets, compute chiplets)
+- Memory technology (DRAM, HBM, SRAM)
+- Package type (2.5D, 3D_stacking, monolithic)
+- Interconnect topology
+
+Step 3: Validate the design
+---------------------------
+Tool call: chip_validate_design(design_id_or_name="<design_name>")
+
+Check for:
+- Valid architecture configuration
+- Proper chiplet counts and types
+- Memory technology compatibility
+- Package and interconnect validity
+- Any missing parameters or constraints
+
+Step 4: Run the full design flow
+--------------------------------
+Tool call: chip_full_flow(description="{idea}", workload={{}}, constraints={{'target_node': '{target_node}'}}, max_iterations=3)
+
+This triggers the entire lifecycle:
+1. Design creation from NL
+2. Design validation
+3. Initial simulation (analytical fidelity)
+4. Bottleneck analysis
+5. Automatic improvement suggestions
+6. Parameter sweep optimization
+7. Design comparison
+8. Export of complete project bundle
+
+Step 5: Review results
+----------------------
+Evaluate the output from chip_full_flow, which includes:
+- Final design specification
+- Simulation metrics (throughput, power, temperature)
+- Bottleneck identification
+- Improvement suggestions
+- Comparison of design variants
+- Exported project files (RTL, reports, constraint files)
+
+Step 6: Iterate as needed
+-------------------------
+If the results don't meet your objectives, you can:
+- Refine the natural language description
+- Adjust constraints (power, area, cost)
+- Request specific improvements
+- Run another flow iteration
+
+The chip_design_from_nl, chip_validate_design, and chip_full_flow tools form
+the core workflow for turning any natural language chip idea into a working
+design with simulation results and exported files.
+
+Please provide your chip idea, and I'll guide you through the complete design process."""
+
+
+def optimize_existing_chip(design_id_or_name: str, objective: str = "ppu") -> str:
+    """Prompt for optimizing an existing design: chip_get_design -> chip_analyze_bottleneck -> chip_suggest_improvements -> chip_sweep_parameters -> chip_compare_designs.
+
+    Args:
+        design_id_or_name: The design ID or name to optimize
+        objective: Optimization objective: "ppu" (power per unit), "throughput", "area", etc.
+
+    Returns:
+        A structured prompt guiding the optimization workflow.
+    """
+    return """Goal: Optimize existing chip design: {design_id_or_name}
+
+Objective: {objective} (power per unit, throughput, area, or other)
+
+I'll guide you through optimizing an existing ChipLab design using the optimization workflow.
+
+Step 1: Retrieve the existing design
+------------------------------------
+Tool call: chip_get_design(design_id_or_name="{design_id_or_name}")
+
+This returns:
+- Design specification (name, version, architecture, chiplets, package, etc.)
+- Design history and provenance
+- Current validation status
+
+Step 2: Analyze the design bottleneck
+--------------------------------------
+Tool call: chip_analyze_bottleneck(design_id_or_name="{design_id_or_name}")
+
+This returns:
+- Primary bottleneck type (memory_bandwidth, compute_bound, thermal, power, balanced)
+- Severity score
+- Utilization breakdown across components
+- Specific recommendations for improvement
+
+Step 3: Get ranked improvement suggestions
+-----------------------------------------
+Tool call: chip_suggest_improvements(design_id_or_name="{design_id_or_name}", max_suggestions=5)
+
+This returns a ranked list of concrete parameter changes with:
+- Specific changes (increase memory bandwidth, add compute chiplets, change process node, adjust cache sizes)
+- Rationale for each change
+- Expected improvement quantification
+- Priority ordering
+
+Step 4: Run parameter sweep optimization
+-----------------------------------------
+Tool call: chip_sweep_parameters(design_id_or_name="{design_id_or_name}",
+    parameters={{...sweep parameters from suggestions...}},
+    objective="{objective}")
+
+This runs a Cartesian product sweep of parameter values and returns:
+- Best point for the given objective
+- All swept points with metrics
+- Objective values for comparison
+
+Step 5: Compare design variants
+--------------------------------
+Tool call: chip_compare_designs(run_ids=[...])
+
+If multiple sweep runs or design versions exist, compare them to:
+- See metric deltas between variants
+- Identify the winner by objective
+- Review summary of trade-offs
+
+Step 6: Implement and re-evaluate
+----------------------------------
+Based on the comparison:
+- Select the best design variant
+- Optionally run another optimization cycle
+- Generate RTL for the optimized design
+- Export the complete project bundle
+
+The optimization workflow (chip_get_design -> chip_analyze_bottleneck ->
+chip_suggest_improvements -> chip_sweep_parameters -> chip_compare_designs)
+provides a systematic approach to improving existing chip designs for your
+chosen objective (power per unit, throughput, area, etc.).
+
+Please provide the design ID or name you want to optimize, and I'll guide you
+through the complete optimization process."""
+PROMPTS = (moe_decode_chiplet_balance, riscv_soc_power_area_tradeoff,
+            hbm_accelerator_cost_per_token, analog_pim_feasibility,
+            create_custom_chip_from_idea, optimize_existing_chip)

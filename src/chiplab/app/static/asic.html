@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ChipLab · ASIC Studio</title>
+<style>
+:root { --bg:#0b0f14; --panel:#121820; --panel-2:#18202a; --line:#263140; --text:#e6edf3; --muted:#9aa7b4; --faint:#6b7886;
+  --accent:#6ea0ff; --accent-soft:#1b2b49; --ok:#3fb960; --warn:#e3a33b; --bad:#f2555f;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace; --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.45 var(--sans); }
+body { display: grid; grid-template-rows: 46px 1fr; }
+header { display: flex; align-items: center; gap: 14px; padding: 0 14px; border-bottom: 1px solid var(--line); background: var(--panel); }
+header h1 { font-size: 14px; margin: 0; font-weight: 650; } header h1 span { color: var(--accent); }
+header nav { display: flex; gap: 2px; flex-wrap: wrap; }
+header nav button { background: none; border: 0; color: var(--muted); padding: 6px 10px; border-radius: 7px; font: inherit; cursor: pointer; }
+header nav button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+header .sp { flex: 1; } header a { color: var(--muted); text-decoration: none; } header a:hover { color: var(--accent); }
+main { overflow: auto; padding: 14px 16px 40px; }
+section.tab { display: none; max-width: 1400px; } section.tab.on { display: block; }
+h2 { font-size: 15px; margin: 4px 0 10px; } h3 { font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); margin: 16px 0 6px; }
+.grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; min-width: 0; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; } .kv dt { color: var(--muted); } .kv dd { margin: 0; font-family: var(--mono); font-size: 12px; text-align: right; }
+table { border-collapse: collapse; width: 100%; font-size: 12px; } th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--faint); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+td.n { font-family: var(--mono); text-align: right; }
+.pill { display: inline-block; padding: 1px 8px; border-radius: 9px; font-size: 11px; font-family: var(--mono); background: var(--panel-2); color: var(--muted); }
+.pill.ok { background: #12301d; color: var(--ok); } .pill.bad { background: #3a1418; color: var(--bad); } .pill.warn { background: #3a2a10; color: var(--warn); }
+textarea, input, select { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px; font: 12px var(--mono); }
+textarea { width: 100%; resize: vertical; }
+.btn { border: 1px solid var(--line); background: var(--panel-2); color: var(--text); border-radius: 7px; padding: 6px 12px; font: inherit; cursor: pointer; }
+.btn:hover { border-color: var(--accent); } .btn.primary { background: var(--accent); border-color: var(--accent); color: #0b0f14; font-weight: 600; } .btn:disabled { opacity: .5; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+.row label { color: var(--muted); font-size: 12px; display: flex; gap: 6px; align-items: center; }
+.muted { color: var(--muted); } .faint { color: var(--faint); font-size: 12px; }
+.md table { margin: 8px 0; } .md code { font-family: var(--mono); background: var(--panel-2); padding: 0 4px; border-radius: 4px; }
+.md h1 { font-size: 16px; } .md h2 { font-size: 14px; } .md pre { background: var(--panel-2); padding: 8px; border-radius: 7px; overflow: auto; }
+canvas.wave { width: 100%; height: 260px; background: #0e141b; border-radius: 8px; border: 1px solid var(--line); }
+.svgbox { overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: #0e141b; margin-top: 8px; }
+.svgbox svg { display: block; max-width: 100%; height: auto; }
+pre.out { background: #0e141b; border: 1px solid var(--line); border-radius: 8px; padding: 8px; max-height: 320px; overflow: auto; font: 11.5px var(--mono); color: var(--muted); white-space: pre-wrap; }
+.busy { color: var(--warn); font-family: var(--mono); font-size: 12px; }
+.lanes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 10px 0; }
+.lane { border: 1px solid var(--line); border-radius: 8px; padding: 8px; background: var(--panel-2); font-size: 12px; }
+.lane b { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1><span>◆</span> ChipLab · ASIC Studio</h1>
+  <nav id="tabs">
+    <button data-t="arch" class="on">Architecture</button><button data-t="lab">Protocol Lab</button>
+    <button data-t="ver">RTL Verification</button><button data-t="phys">Physical Design</button>
+    <button data-t="eval">Competition Evaluation</button><button data-t="mem">Memory Studio</button>
+    <button data-t="foundry">Component Foundry</button>
+  </nav>
+  <span class="sp"></span><a href="/">← GPU Studio</a>
+</header>
+<main>
+<section class="tab on" id="t-arch">
+  <h2>PEM: Protocol Emulation Machine <span class="pill" id="deadline"></span></h2>
+  <div class="grid">
+    <div class="card"><h3>Competition target</h3><dl class="kv" id="comp"></dl></div>
+    <div class="card"><h3>Datapath</h3><div class="lanes" id="lanes"></div><div class="faint" id="rbits"></div></div>
+  </div>
+  <div class="card md" style="margin-top:12px" id="isa"></div>
+</section>
+
+<section class="tab" id="t-lab">
+  <h2>Protocol Laboratory</h2>
+  <div class="grid">
+    <div class="card">
+      <div class="row"><label>Example <select id="ex"></select></label><label>Lane <input id="lane" type="number" min="0" max="3" value="0" style="width:52px"></label>
+        <label>clkdiv <input id="clkdiv" type="number" min="1" value="2" style="width:60px"></label><label>cycles <input id="cycles" type="number" value="1500" style="width:80px"></label></div>
+      <textarea id="src" rows="18" spellcheck="false"></textarea>
+      <h3>Lane registers (JSON)</h3><textarea id="regs" rows="3" spellcheck="false"></textarea>
+      <h3>Bench (W addr data · R addr · C n · S value · LB src dst · I2C scl sda addr)</h3><textarea id="bench" rows="4" spellcheck="false"></textarea>
+      <div class="row"><button class="btn primary" id="sim">Simulate (reference model)</button><button class="btn" id="asm">Assemble</button><span class="busy" id="labbusy"></span></div>
+    </div>
+    <div class="card"><h3>Pins (uio 0-7, from the model)</h3><canvas class="wave" id="wave"></canvas>
+      <h3>Host reads</h3><div id="reads" class="faint">–</div><h3>Assembly / state</h3><pre class="out" id="labout"></pre></div>
+  </div>
+  <div class="card" style="margin-top:12px"><div class="row"><b>Protocol tests</b><span class="faint">UART, SPI modes 0-3, I2C (+NACK), USB-LS TX, IRQ sync, three lanes concurrent; independent decoders</span>
+    <span class="sp"></span><button class="btn" data-run="protocols" data-backend="model">Run on model</button><button class="btn primary" data-run="protocols" data-backend="rtl">Run on RTL (Verilator)</button></div>
+    <div id="prot"></div><h3>Planned / not supported</h3><div id="planned"></div></div>
+</section>
+
+<section class="tab" id="t-ver">
+  <h2>RTL Verification</h2>
+  <div class="row"><button class="btn primary" data-run="regression">Constrained-random lockstep regression</button><button class="btn" data-run="mutation">Mutation check</button>
+    <button class="btn" data-run="lint">Lint</button><button class="btn" data-run="tt_smoke">Tiny Tapeout top via SPI</button>
+    <button class="btn" data-run="synthesis">Synthesize (Yosys)</button><button class="btn" data-run="formal">Formal BMC (SymbiYosys)</button><button class="btn" data-run="gate_sim">Gate-level lockstep</button><button class="btn" data-run="icarus_tt">TT test in Icarus</button>
+    <label>seeds <input id="seeds" type="number" value="40" style="width:60px"></label><label>cycles <input id="vcycles" type="number" value="4000" style="width:80px"></label><span class="busy" id="verbusy"></span></div>
+  <div class="grid"><div class="card"><h3>Regression and coverage</h3><div id="reg"></div></div><div class="card"><h3>Mutation testing (do the tests catch bugs?)</h3><div id="mut"></div></div></div>
+  <div class="grid" style="margin-top:12px"><div class="card"><h3>Synthesis (generic gates)</h3><div id="syn"></div></div><div class="card"><h3>Formal and gate level</h3><div id="frm"></div></div></div>
+  <div class="grid" style="margin-top:12px"><div class="card"><h3>Simulation levels available here</h3><div id="levels"></div></div><div class="card"><h3>Run history</h3><div id="hist"></div></div></div>
+  <div class="card" style="margin-top:12px"><div class="faint">Passing self-generated tests is evidence, not proof. Lockstep compares the RTL with an independently written model; mutation testing measures whether the tests can fail.</div></div>
+</section>
+
+<section class="tab" id="t-phys">
+  <h2>Physical Design (Tiny Tapeout IHP flow)</h2>
+  <div class="grid"><div class="card"><h3>Flow steps</h3><div id="flow"></div></div>
+    <div class="card"><h3>Register bits (pre-synthesis)</h3><div id="rb"></div><h3>Tools</h3><div id="tools"></div>
+      <div class="row"><button class="btn primary" id="export">Export Tiny Tapeout project</button><span class="faint" id="expout"></span></div></div></div>
+  <div class="card" style="margin-top:12px"><div class="row"><b>IHP sg13g2 mapping and tile fit</b><span class="sp"></span><button class="btn primary" data-run="synthesis_ihp" data-backend="slow">Map to IHP cells (slow corner)</button><span class="busy" id="ihpbusy"></span></div><div id="ihp"></div></div>
+  <div class="card" style="margin-top:12px"><h3>Layout</h3><div class="faint">The physical-layout viewer shows a GDS once the hardening flow has produced one (Studio → Layout view renders GDS with KLayout). No layout is drawn before that: a picture without a real flow behind it would overstate the design.</div></div>
+</section>
+
+<section class="tab" id="t-eval">
+  <h2>Competition Evaluation</h2>
+  <div class="grid"><div class="card"><h3>Metrics</h3><div id="metrics"></div></div><div class="card"><h3>Requirements</h3><div id="reqs"></div></div></div>
+  <div class="grid" style="margin-top:12px"><div class="card"><h3>Submission checklist</h3><div id="check"></div></div><div class="card"><h3>Known limitations</h3><ul id="lims"></ul>
+    <div class="row"><a class="btn" href="/api/asic/technical_report" target="_blank">Technical report (Markdown)</a></div></div></div>
+</section>
+
+<section class="tab" id="t-mem">
+  <h2>Memory Studio · memory compiler</h2>
+  <div class="grid">
+    <div class="card"><h3>Specification</h3>
+      <div class="row"><label>kind <select id="m-kind"><option>mask_rom</option><option selected>sram</option><option>dram</option><option>edram</option><option>regfile</option><option>fifo</option></select></label>
+        <label>words <input id="m-words" type="number" value="1024" style="width:80px"></label><label>width <input id="m-width" type="number" value="16" style="width:60px"></label></div>
+      <div class="row"><label>read <input id="m-r" type="number" value="0" style="width:48px"></label><label>write <input id="m-w" type="number" value="0" style="width:48px"></label><label>r/w <input id="m-rw" type="number" value="1" style="width:48px"></label>
+        <label>PDK <select id="m-pdk"></select></label><label>MHz <input id="m-f" type="number" value="100" style="width:70px"></label></div>
+      <div class="row"><label>cell <select id="m-cell"><option value="">auto</option></select></label><label>objective <select id="m-obj"><option>area_delay</option><option>area</option><option>delay</option><option>energy</option></select></label>
+        <label>ROM data <select id="m-data"><option value="random">random</option><option value="sine">sine table</option><option value="zeros">zeros</option><option value="count">address</option></select></label></div>
+      <div class="row"><button class="btn primary" id="m-compile">Compile</button><button class="btn" id="m-rtl">Generate RTL + Verilator test</button><button class="btn" id="m-cmp">Compare ROM / SRAM / eDRAM / RF</button><span class="busy" id="membusy"></span></div>
+      <div id="m-checks"></div></div>
+    <div class="card"><h3>Best candidate</h3><div id="m-best"></div></div>
+  </div>
+  <div class="card" style="margin-top:12px"><h3>Candidates (ranked; ◆ = Pareto)</h3><div id="m-cands"></div></div>
+  <div class="grid" style="margin-top:12px"><div class="card"><h3>Physical view (manufactured array)</h3><div class="svgbox" id="v-physical"></div></div><div class="card"><h3>Circuit view (transistor level)</h3><div class="svgbox" id="v-circuit"></div></div></div>
+  <div class="grid" style="margin-top:12px"><div class="card"><h3>Logical view (contents)</h3><div class="svgbox" id="v-logical"></div></div><div class="card"><h3>Block diagram</h3><div class="svgbox" id="v-block"></div><h3>Comparison / RTL</h3><div id="m-extra"></div></div></div>
+</section>
+
+<section class="tab" id="t-foundry">
+  <h2>Component Foundry · custom ASIC architectures</h2>
+  <div class="grid">
+    <div class="card"><h3>Components</h3><div class="row"><select id="c-list" size="14" style="width:100%"></select></div>
+      <div class="row"><label>PDK <select id="c-pdk"></select></label><label>params <input id="c-params" value="{}" style="width:200px"></label><button class="btn primary" id="c-elab">Elaborate</button><button class="btn" id="c-v">Verilog</button></div></div>
+    <div class="card"><h3>Hierarchy and roll-up</h3><div id="c-info"></div><div class="svgbox" id="c-svg"></div></div>
+  </div>
+  <div class="grid" style="margin-top:12px">
+    <div class="card"><h3>Functional simulation (stimulus: one JSON object per cycle)</h3><textarea id="c-stim" rows="5" spellcheck="false">[{"a":3,"b":5,"clr":0},{"a":2,"b":2,"clr":0},{"a":1,"b":1,"clr":0},{"a":0,"b":0,"clr":0},{"a":0,"b":0,"clr":0}]</textarea>
+      <div class="row"><button class="btn" id="c-sim">Simulate</button></div><pre class="out" id="c-out"></pre></div>
+    <div class="card"><h3>New component (JSON; expressions are sandboxed, versions immutable)</h3><textarea id="c-def" rows="12" spellcheck="false"></textarea>
+      <div class="row"><button class="btn primary" id="c-create">Register</button><span class="faint" id="c-cres"></span></div></div>
+  </div>
+</section>
+</main>
+<script type="module" src="/asic.js"></script>
+</body>
+</html>

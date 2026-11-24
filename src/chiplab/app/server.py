@@ -23,6 +23,7 @@ from starlette.responses import FileResponse, JSONResponse, StreamingResponse
 from starlette.routing import Route
 
 from chiplab.activity import ActivityLog
+from chiplab.app import asic_routes, tools_api
 from chiplab.cost import model as cost_model
 from chiplab.cost import prices
 from chiplab.engine.validator import validate_design
@@ -303,6 +304,12 @@ def create_app(db_path: str) -> Starlette:
     async def studio_js(_: Request) -> FileResponse:
         return FileResponse(STATIC / "studio.js", media_type="text/javascript")
 
+    async def toolviews_js(_: Request) -> FileResponse:
+        return FileResponse(STATIC / "toolviews.js", media_type="text/javascript")
+
+    async def layout3d_js(_: Request) -> FileResponse:
+        return FileResponse(STATIC / "layout3d.js", media_type="text/javascript")
+
     async def scene(request: Request) -> JSONResponse:
         q = request.query_params
         try:
@@ -462,6 +469,10 @@ def create_app(db_path: str) -> Starlette:
         Route("/", index),
         Route("/live", live),
         Route("/studio.js", studio_js),
+        Route("/layout3d.js", layout3d_js),
+        Route("/toolviews.js", toolviews_js),
+        *tools_api.routes(store, db_path, studio_scene),
+        *asic_routes.routes(_lab),
         Route("/api/studio/scene", scene),
         Route("/api/studio/edit", _lab(lambda d: studio_edit(store, d)), methods=["POST"]),
         Route("/api/events", events),

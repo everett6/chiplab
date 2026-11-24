@@ -10,6 +10,42 @@ from chiplab.schemas.simulation import AssumptionRecord
 from chiplab.schemas.common import Provenance
 from chiplab.schemas.design import DesignSpec
 
+from chiplab.models.packaging.interposer import (
+    interposer_rc,
+    interposer_bandwidth,
+    interposer_power,
+    interposer_latency,
+    coswo_s,
+    coswo_r,
+    emib,
+    info_s,
+)
+from chiplab.models.packaging.hybrid_bonding import (
+    hybrid_bond_rc,
+    hybrid_bond_bandwidth,
+    hybrid_bond_power,
+    tsv_rc,
+    tsv_thermal,
+    soic,
+    foveros,
+    v_cache,
+)
+from chiplab.models.packaging.ucie_phy import (
+    ucie_bandwidth,
+    ucie_power,
+    ucie_latency,
+    ucie_area,
+    ucie_1p0,
+    ucie_1p1,
+    ucie_2p0,
+)
+from chiplab.models.packaging.warpage import (
+    warpage_analysis,
+    cte_stress,
+    solder_joint_reliability,
+    warpage_derating,
+)
+
 
 def estimate_packaging(
     design: DesignSpec,

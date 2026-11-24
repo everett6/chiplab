@@ -1,0 +1,41 @@
+{
+  "top": "tt_um_chiplab_pem",
+  "files": [
+    "src/tt_um_chiplab_pem.v",
+    "src/pem_core.v",
+    "src/pem_lane.v",
+    "info.yaml",
+    "docs/info.md",
+    "docs/isa.md",
+    "docs/verification.md",
+    "programs/uart_tx.pem",
+    "programs/uart_rx.pem",
+    "programs/spi_mode0.pem",
+    "programs/spi_mode1.pem",
+    "programs/spi_mode2.pem",
+    "programs/spi_mode3.pem",
+    "programs/i2c_controller.pem",
+    "programs/usb_ls_tx.pem",
+    "test/test.py",
+    "test/tb.v",
+    "test/README.md"
+  ],
+  "competition": {
+    "name": "Jane Street Protocol Emulator ASIC Competition",
+    "process": "IHP 130 nm open PDK (sg13cmos5l variant per Tiny Tapeout IHP shuttles)",
+    "flow": "Tiny Tapeout",
+    "max_tiles": "8x4",
+    "deadline": "2027-01-18",
+    "baseline_protocols": [
+      "UART",
+      "SPI",
+      "I2C"
+    ],
+    "stretch_protocols": [
+      "USB low speed",
+      "10 Mbit Ethernet"
+    ],
+    "reprogrammable": true,
+    "source": "user-supplied competition brief (not independently verified by ChipLab)"
+  }
+}

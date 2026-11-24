@@ -12,7 +12,9 @@ from chiplab import mcp_server as srv
 from chiplab.experiments.store import ExperimentStore
 
 ROOT = Path(__file__).resolve().parents[1]
-YAMLS = sorted([*ROOT.glob("examples/*.yaml"), *ROOT.glob("projects/**/*.yaml")])
+YAMLS = sorted(p for p in [*ROOT.glob("examples/*.yaml"), *ROOT.glob("projects/**/*.yaml")]
+               if p.read_text().lstrip().startswith("design:") or "\ndesign:" in p.read_text())
+# (projects/ also holds exported Tiny Tapeout projects whose info.yaml is not a ChipLab design)
 
 
 @pytest.mark.parametrize("path", YAMLS, ids=lambda p: p.name)

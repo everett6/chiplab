@@ -4,6 +4,7 @@
 // discrete-event simulation's per-resource utilization. Nothing is decorative.
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { buildDieLayout, STACK } from "/layout3d.js";
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -21,16 +22,17 @@ const MODES = [
 ];
 const LAYERS = [
   ["cooling", "Cooler (fans + heatsink)"], ["ihs", "Heat spreader"], ["dies", "Dies & stacks"],
+  ["cells", "Die layout (cells + metal stack)"],
   ["interposer", "Interposer & routes"], ["substrate", "Package substrate"], ["pcb", "PCB & board parts"],
 ];
 const DEFAULT_LAYERS = {
-  assembly: { cooling: true, ihs: true, dies: true, interposer: true, substrate: true, pcb: true },
-  die: { cooling: false, ihs: false, dies: true, interposer: true, substrate: false, pcb: false },
-  memory: { cooling: false, ihs: false, dies: true, interposer: true, substrate: true, pcb: false },
-  thermal: { cooling: false, ihs: false, dies: true, interposer: true, substrate: true, pcb: true },
-  power: { cooling: false, ihs: false, dies: true, interposer: true, substrate: true, pcb: true },
-  interconnect: { cooling: false, ihs: false, dies: true, interposer: true, substrate: true, pcb: false },
-  airflow: { cooling: true, ihs: true, dies: true, interposer: true, substrate: true, pcb: true },
+  assembly: { cooling: true, ihs: true, dies: true, cells: true, interposer: true, substrate: true, pcb: true },
+  die: { cooling: false, ihs: false, dies: true, cells: true, interposer: true, substrate: false, pcb: false },
+  memory: { cooling: false, ihs: false, dies: true, cells: false, interposer: true, substrate: true, pcb: false },
+  thermal: { cooling: false, ihs: false, dies: true, cells: false, interposer: true, substrate: true, pcb: true },
+  power: { cooling: false, ihs: false, dies: true, cells: false, interposer: true, substrate: true, pcb: true },
+  interconnect: { cooling: false, ihs: false, dies: true, cells: true, interposer: true, substrate: true, pcb: false },
+  airflow: { cooling: true, ihs: true, dies: true, cells: false, interposer: true, substrate: true, pcb: true },
 };
 
 const S = {
@@ -330,6 +332,11 @@ function build() {
     pickables.push(top);
     g.add(top);
     H.comp[c.id].face = top;
+    if (c.kind !== "hbm_stack") {
+      const lay = buildDieLayout(c, D.components, V);
+      g.add(lay);
+      H.comp[c.id].lay = lay;
+    }
     // microbumps under the die (sampled)
     const bx = 14, by = 10;
     const bump = new THREE.InstancedMesh(new THREE.SphereGeometry(0.22, 6, 4), MAT.copper(), bx * by);
@@ -506,6 +513,7 @@ function layout() {
     }
     if (h.tsv) h.tsv.visible = expand <= 1.05 || S.mode !== "assembly";
     h.face.position.y = top + 0.02;
+    if (h.lay) h.lay.position.y = top + 0.02;
     maxTop = Math.max(maxTop, top);
   }
   const ihsY = g.dies.position.y + maxTop + 0.05 * V + gap * 1.2;
@@ -580,6 +588,13 @@ function applyMode() {
     for (const s of h.segs) s.material.color = new THREE.Color(mode === "interconnect" ? utilCss(h.L.util / maxU) : 0xc27a3e);
     for (const s of h.segs) s.material.emissive = new THREE.Color(mode === "interconnect" && h.L.util === maxU && maxU > 0.05 ? 0x551100 : 0);
   }
+  // die layout sheets replace the flat floorplan face where the cell/metal view applies
+  for (const h of Object.values(H.comp)) {
+    if (!h.lay) continue;
+    const on = !!S.layers.cells && ["assembly", "die", "interconnect", "airflow"].includes(mode);
+    h.lay.visible = on;
+    h.face.material.visible = !on;   // stays pickable underneath
+  }
   applyWire();
   legend();
   hud();
@@ -615,6 +630,10 @@ function legend() {
     const maxPD = Math.max(...D.components.map((c) => c.power_density_w_mm2));
     html = `<b>Power density</b><div class="bar" style="background:${gradientCss(rampCss)}"></div><div class="ends"><span>0</span><span>${f(maxPD, 3)} W/mm²</span></div>
       <div class="note">Package ${f(D.power.package_w)} W (dies ${f(D.power.dies_w)} W + PHY/links ${f(D.power.interconnect_w)} W) · VRM loss ${f(D.power.vrm_loss_w)} W · board input ${f(D.power.board_input_w)} W. Red glow: large power share but &lt;30% busy in the simulated workload.</div>`;
+  } else if (m === "die" && S.layers.cells) {
+    const h = S.selected && H.comp[S.selected.id], st = h?.lay?.userData.stats;
+    html = `<b>Die layout · layer stack</b>${STACK.slice().reverse().map((l) => `<div style="display:flex;gap:6px;align-items:center;margin-top:3px"><i style="width:12px;height:9px;border-radius:2px;background:${l.color};display:inline-block"></i>${esc(l.name)}</div>`).join("")}
+      <div class="note">Drawn from ChipLab's floorplan for each die (clusters, SRAM share, PHY edges, channels × banks, CIM share). Representative, not a GDS: each cell row stands for many.${st ? ` ${f(st.cell_rows, 0)} rows · ${f(st.signal_wires, 0)} wires · ${f(st.arrays, 0)} arrays shown.` : ""} Signal-wire density follows simulated cluster activity.</div>`;
   } else if (m === "memory" || m === "interconnect" || m === "die") {
     html = `<b>${m === "interconnect" ? "Link utilization" : "Simulated activity"}</b><div class="bar" style="background:${gradientCss(utilCss)}"></div><div class="ends"><span>idle</span><span>${m === "interconnect" ? "busiest link" : "100% busy"}</span></div>
       <div class="note">${D.simulation ? `Discrete-event run of <b>${esc(S.data.workload)}</b>: bottleneck <b>${esc(D.simulation.bottleneck.bound_type)}</b>, ${f(D.simulation.events, 0)} events.` : "No simulation."}</div>`;

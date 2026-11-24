@@ -1,5 +1,6 @@
 from enum import Enum
 from typing import Any
+import numpy as np
 from pydantic import BaseModel, Field
 
 
@@ -32,23 +33,35 @@ def get_provenance(v: float | int | str | bool | BaseModel) -> Provenance:
 
 
 class TrackedValue(BaseModel):
-    value: float | int | str | bool
+    """A value with optional unit, provenance tracking, and metadata."""
+    value: float | int | str | bool | np.ndarray
     unit: str | None = None
     provenance: Provenance = Provenance.ASSUMED
     source: str | None = None
     uncertainty_pct: float | None = None
     notes: str | None = None
 
+    model_config = {"arbitrary_types_allowed": True}
+
     # Models call float()/int() and truth tests on spec fields; a TrackedValue must behave
     # like its number there, or any design that uses provenance/uncertainty crashes.
     def __float__(self) -> float:
-        return float(self.value)
+        v = self.value
+        if isinstance(v, np.ndarray):
+            return float(v.mean())  # use mean of array
+        return float(v)
 
     def __int__(self) -> int:
-        return int(self.value)
+        v = self.value
+        if isinstance(v, np.ndarray):
+            return int(v.mean())
+        return int(v)
 
     def __bool__(self) -> bool:
-        return bool(self.value)
+        v = self.value
+        if isinstance(v, np.ndarray):
+            return bool(v.mean())
+        return bool(v)
 
 
 # Type aliases

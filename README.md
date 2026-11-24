@@ -450,6 +450,31 @@ memory={"capacity_kib": 2048})` searches SRAM vs eDRAM, banks, interleaving and 
 across the ladder. It adds a refresh-violation probability to the robustness score and
 ±25% retention and ±20% traffic priors.
 
+## ASIC Studio, memory compiler and Component Foundry (`/asic`)
+
+Open `http://localhost:8770/asic` (from the app) or use the matching MCP tools.
+
+- **PEM protocol emulator ASIC** (Jane Street competition target: IHP 130 nm, Tiny Tapeout).
+  This is a reprogrammable 4-lane serial engine.
+  - **ISA and RTL:** the PEM-16 ISA is in `src/chiplab/asic/isa.py`; the RTL is in `src/chiplab/asic/rtl/`.
+  - **Proven on RTL and on an independent Python model:** UART, SPI (modes 0–3), I2C and low-speed USB TX.
+  - **Verification:** lockstep constrained-random regression, coverage, assertions, mutation testing, and an SPI host smoke test of the TT top.
+  - **Export:** writes a Tiny Tapeout project to `projects/<name>`.
+  - **Not run yet:** physical results (area, timing, GDS) stay "not run" until the hardening flow runs.
+- **Memory compiler** (`src/chiplab/memory_compiler/`):
+  - Covers mask ROM, SRAM, DRAM, eDRAM, register files and FIFOs.
+  - Searches cell type, banks, column mux and decoder on any PDK in the ladder.
+  - Gives area, timing and power (analytical, ±40%), plus feasibility.
+  - Shows logical, circuit and physical views.
+  - Generates RTL with a self-checking Verilator testbench.
+- **Component SDK** (`src/chiplab/sdk/`): hierarchical components from transistors up.
+  - Model expressions run in a sandbox (AST whitelist, no eval).
+  - Versions are immutable.
+  - Supports roll-ups, a cycle-based functional simulator and structural Verilog export.
+- **MCP tools:** `asic_*`, `memory_compile`, `memory_compare`, `memory_generate_rtl`, `component_*` and `architecture_*`.
+
+See `docs/spec_coverage.md` for what is done, partial, missing or blocked on tools.
+
 ## Private (NDA) PDKs
 
 `ingest_byo_pdk` and `calibrate_from_eda_report` default to `private=True`:

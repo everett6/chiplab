@@ -4,8 +4,24 @@
     {
       "name": "chiplab-app",
       "runtimeExecutable": "/home/everett/Chip Lab/.venv/bin/chiplab-app",
-      "runtimeArgs": ["--db", "/home/everett/Chip Lab/chiplab_experiments.db", "--port", "8770"],
+      "runtimeArgs": [
+        "--db",
+        "/home/everett/Chip Lab/chiplab_experiments.db",
+        "--port",
+        "8770"
+      ],
       "port": 8770
+    },
+    {
+      "name": "chiplab-app-tools",
+      "runtimeExecutable": "/home/everett/Chip Lab/.venv/bin/chiplab-app",
+      "runtimeArgs": [
+        "--db",
+        "/home/everett/Chip Lab/chiplab_experiments.db",
+        "--port",
+        "8771"
+      ],
+      "port": 8771
     }
   ]
 }
