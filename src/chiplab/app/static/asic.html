@@ -105,6 +105,7 @@ pre.out { background: #0e141b; border: 1px solid var(--line); border-radius: 8px
     <div class="card"><h3>Register bits (pre-synthesis)</h3><div id="rb"></div><h3>Tools</h3><div id="tools"></div>
       <div class="row"><button class="btn primary" id="export">Export Tiny Tapeout project</button><span class="faint" id="expout"></span></div></div></div>
   <div class="card" style="margin-top:12px"><div class="row"><b>IHP sg13g2 mapping and tile fit</b><span class="sp"></span><button class="btn primary" data-run="synthesis_ihp" data-backend="slow">Map to IHP cells (slow corner)</button><span class="busy" id="ihpbusy"></span></div><div id="ihp"></div></div>
+  <div class="card" style="margin-top:12px"><div class="row"><b>Tiny Tapeout hardening (GitHub Actions)</b><span class="sp"></span><button class="btn primary" data-run="hardening_import">Import latest gds run</button><span class="busy" id="hardbusy"></span></div><div id="hard"></div></div>
   <div class="card" style="margin-top:12px"><h3>Layout</h3><div class="faint">The physical-layout viewer shows a GDS once the hardening flow has produced one (Studio → Layout view renders GDS with KLayout). No layout is drawn before that: a picture without a real flow behind it would overstate the design.</div></div>
 </section>
 

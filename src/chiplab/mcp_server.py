@@ -2255,7 +2255,9 @@ def asic_run_verification(kind: str = "protocols", seeds: int = 20, cycles: int 
     """Run verification on the PEM RTL and store the result: protocols (UART/SPI 0-3/I2C/USB-LS
     with independent decoders), regression (constrained-random RTL vs reference-model
     lockstep with coverage), mutation (injected RTL bugs must be caught), lint, tt_smoke
-    (Tiny Tapeout top level through the SPI host port). seeds <= 100, cycles <= 10000.
+    (Tiny Tapeout top level through the SPI host port), synthesis, synthesis_ihp, icarus_tt,
+    formal, gate_sim, hardening_import (reads the latest TT GitHub Actions gds run: DRC, LVS,
+    timing corners, utilization). seeds <= 100, cycles <= 10000.
     Results come only from the run; a missing tool is reported, never passed."""
     from chiplab import asic_api
     return asic_api.asic_run(kind, seeds, cycles, backend)

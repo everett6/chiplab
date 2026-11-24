@@ -100,7 +100,8 @@ def asic_simulate(source: str, lane_regs: dict[str, int] | None = None, cycles: 
 
 
 def asic_run(kind: str, seeds: int = 20, cycles: int = 3000, backend: str = "rtl") -> dict[str, Any]:
-    """Explicit runs: protocols | regression | mutation | lint | tt_smoke | synthesis | formal | gate_sim.
+    """Explicit runs: protocols | regression | mutation | lint | tt_smoke | synthesis | formal | gate_sim |
+    hardening_import.
     For formal, `cycles` (if <= 40) is the BMC depth; otherwise depth 20."""
     from chiplab.asic import report, verify
     if kind == "protocols":
@@ -127,7 +128,10 @@ def asic_run(kind: str, seeds: int = 20, cycles: int = 3000, backend: str = "rtl
         return report.run_formal(int(cycles) if 1 <= int(cycles) <= 40 else 20)
     if kind == "gate_sim":
         return report.run_gate_level(_bound("seeds", seeds), _bound("regression_cycles", cycles, 100))
-    raise ValueError("kind must be protocols, regression, mutation, lint, tt_smoke, synthesis, synthesis_ihp, icarus_tt, formal or gate_sim")
+    if kind == "hardening_import":   # reads the latest completed TT gds run of the local repo clone via gh
+        return report.run_hardening_import()
+    raise ValueError("kind must be protocols, regression, mutation, lint, tt_smoke, synthesis, synthesis_ihp, "
+                     "icarus_tt, formal, gate_sim or hardening_import")
 
 
 def asic_report() -> dict[str, Any]:
