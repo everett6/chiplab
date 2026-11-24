@@ -72,6 +72,14 @@ flowchart LR
   the roofline cannot see: chiplet links, uneven channel bandwidth, access/hop latency and
   queueing. Not modeled: DRAM command timing, caches, cut-through flow control.
   Area, power and cost come from the analytical models.
+- **Specialized** (`FidelityLevel.SPECIALIZED`, Level 3): starts from the analytical result
+  and replaces its two ideal inputs with simulated ones. Ramulator 2 derates each memory
+  chiplet's bandwidth to the fraction of channel peak it achieves on the workload's stream
+  and reports loaded read latency; SCALE-Sim derates each systolic / tensor-engine chiplet's
+  effective TOPS to the array utilization it measures on the workload's QKV, attention-output
+  and FFN GEMMs. Latency is still max(compute, memory); power, area, thermal and cost stay
+  analytical. Chiplets neither tool covers keep analytical numbers and are listed in
+  `warnings`. If no chiplet is covered, the run falls back to analytical and is labeled so.
 - **Sweep**: Parameter sweep over design/workload parameters
 - **Analyzer**: Bottleneck analysis and result comparison
 
@@ -97,11 +105,18 @@ flowchart LR
   compute-in-memory simulator. PIM chiplets with a `compute.ecore` block take their compute
   rate, energy/op, power and area from it; MCP tool `simulate_ecore_array`. Optional: tests
   skip without Echo Lab. See [docs/ecore_backend.md](docs/ecore_backend.md).
-- Ramulator, SCALE-Sim and Accel-Sim are **detected only, not integrated**: `run()` raises
-  `NotImplementedError` even when the tool is installed, and `backend_status()` reports
-  installed / integrated / usable. Asking `chip_run_simulation` for `specialized` or
-  `rtl_circuit` runs the analytical model, labels the result `analytical` and says so in
-  `warnings`.
+- **Ramulator 2** and **SCALE-Sim 3** (integrated, optional): used by
+  `fidelity="specialized"`. Each runs in its own Python environment through a fixed runner
+  script (argument list, no shell; MCP clients cannot choose the interpreter, script or any
+  path). Install and setup: [docs/specialized_backends.md](docs/specialized_backends.md).
+  Supported memory: HBM2/2E, HBM3/3E, HBM4, LPDDR5/5X, DDR4, DDR5, GDDR7 (GDDR6 is not:
+  Ramulator's preset lacks refresh timings). Compute chiplets may set `compute.array_dim`
+  and `compute.dataflow` (`ws`/`os`/`is`); otherwise arrays are the largest power of two
+  <= sqrt(mac_units), capped at 128, and the best of the three dataflows is used.
+- **Accel-Sim** is **detected only**: `run()` raises `NotImplementedError` even when it is
+  installed. `backend_status()` reports installed / integrated / usable (with a reason)
+  for every backend. Asking for `rtl_circuit` runs the analytical model, labels the result
+  `analytical` and says so in `warnings`.
 
 ### YAML Design Files
 

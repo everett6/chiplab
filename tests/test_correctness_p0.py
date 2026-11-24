@@ -68,9 +68,8 @@ def test_des_capacity_and_bisection_match_analytical_models():
 
 # --- external backends never fake success ----------------------------------------------------
 
-@pytest.mark.parametrize("cls", [RamulatorBackend, ScaleSimBackend, AccelSimBackend])
-def test_external_backend_raises_even_when_installed(cls, monkeypatch):
-    b = cls()
+def test_accel_sim_raises_even_when_installed(monkeypatch):
+    b = AccelSimBackend()
     with pytest.raises(NotImplementedError, match="not installed"):
         b.run(None, None, None)
     monkeypatch.setattr("chiplab.backends.base.shutil.which", lambda name: f"/usr/bin/{name}")
@@ -81,11 +80,25 @@ def test_external_backend_raises_even_when_installed(cls, monkeypatch):
                           "usable": False}
 
 
-def test_backend_status_lists_all_three_unusable():
+@pytest.mark.parametrize("cls", [RamulatorBackend, ScaleSimBackend])
+def test_runner_backend_missing_tool_raises_never_fakes(cls, tmp_path, monkeypatch):
+    from chiplab.backends import base
+    b = cls()
+    monkeypatch.setenv(b.env_var, str(tmp_path / "no-python"))
+    monkeypatch.setattr(base, "_PROBE_CACHE", {})
+    assert b.is_available() is False
+    st = b.status()
+    assert st["integrated"] is True and st["usable"] is False and "not found" in st["reason"]
+    with pytest.raises(RuntimeError, match="unavailable"):
+        b.call_runner({})
+
+
+def test_backend_status_lists_all_backends():
     st = {s["name"]: s for s in backend_status()}
     assert set(st) == {"ramulator", "scale_sim", "accel_sim", "ecore"}
-    assert not any(st[n]["usable"] for n in ("ramulator", "scale_sim", "accel_sim"))
-    assert st["ecore"]["integrated"] is True  # usable depends on Echo Lab being present
+    assert st["accel_sim"]["usable"] is False and st["accel_sim"]["integrated"] is False
+    for n in ("ramulator", "scale_sim", "ecore"):
+        assert st[n]["integrated"] is True  # usable depends on the tool being installed
 
 
 @pytest.mark.parametrize("requested", ["specialized", "rtl_circuit"])
@@ -99,7 +112,7 @@ def test_unavailable_fidelity_is_labeled_analytical(requested, tmp_path, monkeyp
     assert res["fidelity"] == "analytical"
     assert any(f"'{requested}' is not available" in w for w in res["warnings"])
     info = chiplab.mcp_server.get_models_assumptions()
-    assert "NOT INTEGRATED" in info["fidelity_levels"]["specialized"]["description"]
+    assert "Accel-Sim is detected only" in info["fidelity_levels"]["specialized"]["description"]
     assert "(SimPy)" not in info["fidelity_levels"]["discrete_event"]["description"]
 
 

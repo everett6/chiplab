@@ -23,6 +23,10 @@ tolerance justified by that source. Never widen a tolerance to make a failing ca
 fix the model or the data, and record the change here.
 
 ## Not yet covered
-- Cycle-level memory timing (needs Ramulator 2.0) and systolic-array cycle counts (needs
-  SCALE-Sim): both backends are detected only.
+- End-to-end cycle accuracy. Ramulator 2 (DRAM timing, one channel, sequential stream) and
+  SCALE-Sim 3 (systolic-array cycles on the workload's GEMMs) are integrated at
+  `fidelity="specialized"`, but they only derate the roofline's two ideal inputs; latency
+  is still max(compute, memory). No golden cases exist for the specialized level yet.
+  Measured sequential-stream efficiency (one channel, Ramulator 2.1 presets): HBM2 0.83,
+  HBM3 0.82, HBM4 0.64, LPDDR5 0.86, DDR4 0.94, DDR5 0.91, GDDR7 0.76.
 - Measured-silicon correlation of power and performance.

@@ -210,16 +210,23 @@ def chip_run_simulation(
     from chiplab.engine import run_analytical_simulation, run_discrete_event_simulation
 
     fallback_note = None
-    if fidelity_level == FidelityLevel.DISCRETE_EVENT:
+    result = None
+    if fidelity_level == FidelityLevel.SPECIALIZED:
+        from chiplab.engine.specialized import SpecializedUnavailable, run_specialized_simulation
+        try:
+            result = run_specialized_simulation(design_spec, workload_obj, config, design_id)
+        except SpecializedUnavailable as e:
+            fallback_note = f"Requested fidelity 'specialized' is not available ({e})."
+    if result is None and fidelity_level == FidelityLevel.DISCRETE_EVENT:
         result = run_discrete_event_simulation(design_spec, workload_obj, config, design_id)
-    else:
+    elif result is None:
         if fidelity_level in (FidelityLevel.SPECIALIZED, FidelityLevel.RTL_CIRCUIT):
             # No integrated backend exists for these levels: run analytical and label it so.
             from chiplab.backends import backend_status
-            fallback_note = (
+            fallback_note = (fallback_note or (
                 f"Requested fidelity '{fidelity_level.value}' is not available (external "
-                f"backends: {backend_status()}); ran the analytical model instead. The result "
-                "is labeled analytical.")
+                f"backends: {backend_status()}).")) + (
+                " Ran the analytical model instead; the result is labeled analytical.")
             fidelity_level = FidelityLevel.ANALYTICAL
             config = config.model_copy(update={"fidelity": fidelity_level})
         result = run_analytical_simulation(design_spec, workload_obj, config, design_id)
@@ -550,7 +557,7 @@ def get_models_assumptions() -> dict:
         },
         "specialized": {
             "name": "Specialized Fidelity",
-            "description": "Level 3 external simulators (Ramulator, SCALE-Sim, Accel-Sim). NOT INTEGRATED: ChipLab only detects them; requesting this level runs the analytical model and labels the result analytical.",
+            "description": "Level 3 external simulators. Ramulator 2 (DRAM command timing: bandwidth efficiency and loaded latency per memory type) and SCALE-Sim 3 (systolic-array utilization on the workload's GEMMs) are integrated when installed (see backend_status); they derate the roofline's memory bandwidth and array efficiency, while power, area, thermal and cost stay analytical. Accel-Sim is detected only. If no installed tool covers a design, this level runs the analytical model and labels the result analytical.",
         },
         "rtl_circuit": {
             "name": "RTL Circuit Fidelity",
