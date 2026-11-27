@@ -14,6 +14,7 @@ from ..schemas.design import (
 )
 from ..schemas.simulation import ValidationResult
 from ..schemas.common import Provenance, unwrap_value, get_provenance
+from ..credibility import material_problems, material_warnings
 
 
 def _get_provenance_counts(design: DesignSpec) -> dict[str, int]:
@@ -146,6 +147,10 @@ def validate_design(design: DesignSpec, allow_estimated_defaults: bool = True) -
     # Validate each chiplet
     for chiplet in design.chiplets:
         _check_chiplet(chiplet, allow_estimated_defaults, errors, warnings, missing)
+
+    # Simulated material devices must pass the physics validation gate
+    errors.extend(material_problems(design))
+    warnings.extend(material_warnings(design))
 
     # Check package constraints
     if design.package.type == "monolithic" and len(design.chiplets) > 1:

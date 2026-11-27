@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import itertools
+import math
 import os
 import sys
 import json
+import time
 from typing import Any, Dict, List, Optional
 
 from mcp.server.mcpserver import Context, MCPServer
@@ -12,6 +15,7 @@ from mcp.server.mcpserver import Context, MCPServer
 # --- Database path configuration ---
 DB_PATH = os.environ.get("CHIPLAB_DB_PATH", "chiplab_experiments.db")
 
+from chiplab.credibility import require_credible_design
 from chiplab.experiments.store import ExperimentStore
 from chiplab.library.components import list_components, get_component_defaults, COMPONENT_LIBRARY
 from chiplab.schemas.design import DesignSpec
@@ -26,6 +30,34 @@ from chiplab.schemas.simulation import (
 from chiplab.engine.validator import validate_design
 from chiplab.engine.sweep import run_parameter_sweep
 from chiplab.engine.analyzer import analyze_bottleneck, compare_results
+from chiplab.core.gpu_benchmark import get_gpu_status, run_gpu_benchmark
+from chiplab.mcp_industrial_tools import (
+    chiplab_reliability_analyze,
+    chiplab_discover_architectures,
+    chiplab_manufacturing_signoff,
+    chiplab_digital_twin_manage,
+    chiplab_multiscale_surrogate,
+)
+from chiplab.mcp_experimental_tools import (
+    chiplab_simulate_experimental_tech,
+    chiplab_compare_technologies,
+    chiplab_sweep_experiment,
+    chiplab_custom_device_simulate,
+    chiplab_experiment_ledger,
+    chiplab_custom_circuit_simulate,
+    chiplab_scale_technology_node,
+    chiplab_list_process_nodes,
+    chiplab_list_experimental_technologies,
+    chiplab_2d_beyond_cmos_simulate,
+    chiplab_quantum_device_simulate,
+    chiplab_spice_netlist_run,
+    chiplab_agent_run,
+    chiplab_chipro_eda_flow,
+    chiplab_mage_rtl_pipeline,
+    chiplab_chia_codesign_loop,
+    chiplab_local_llm_models,
+)
+
 from chiplab.results.reporter import export_simulation_report
 
 # Initialize the experiment store
@@ -929,17 +961,19 @@ def chip_generate_rtl(
     Uses existing memory_gen and asic modules. Returns the RTL code + a file manifest.
     """
     from chiplab.library.components import get_component_defaults, COMPONENT_LIBRARY
-    from chiplab.schemas.design import DesignSpec
+    from chiplab.schemas.design import plain_design
 
     # Get the design
     design_id, design_spec = store.get_design(design_id_or_name)
+    require_credible_design(design_spec)
+    design_spec, _ = plain_design(design_spec)  # TrackedValues would not format as numbers
 
     # Determine which chiplets have RTL generation capability
     memory_chiplets = [
         c for c in design_spec.chiplets if c.type == "memory"
     ]
     compute_chiplets = [
-        c for c in design_spec.chiplets if c.type == "digital_compute"
+        c for c in design_spec.chiplets if c.type in ("compute", "digital_compute")
     ]
 
     rtl_files = []
@@ -1017,34 +1051,41 @@ def chip_generate_rtl(
 
     # Generate a top-level module that instantiates all subsystems
     top_module = f"// Top-level chip module\n// Generated from design: {design_spec.name}\n// Target: {target}\n"
-    top_module += "\nmodule top_level_chip (\n"
-    top_module += "    input clk,\n"
-    top_module += "    input rst_n,\n"
+    ports = ["input clk", "input rst_n"]
     # Add ports for memory interfaces
     for i, mem in enumerate(memory_chiplets[:2]):
-        top_module += f"    inout [{mem.memory.channels - 1}:0] hbm_dq_{i},\n"
-    # Add ports for compute
-    top_module += "    output [31:0] compute_result,\n"
-    top_module += ");\n"
+        channels = mem.memory.channels if mem.memory else 1
+        ports.append(f"inout [{channels - 1}:0] hbm_dq_{i}")
+    # Add ports for compute: one result bus per instance, so no net has two drivers
+    result_signals = ["compute_result"]
+    if len(compute_chiplets[:2]) == 2:
+        result_signals.append("compute_result_1")
+    ports += [f"output [31:0] {signal}" for signal in result_signals]
+    top_module += "\nmodule top_level_chip (\n"
+    top_module += ",\n".join(f"    {port}" for port in ports)
+    top_module += "\n);\n"
     top_module += "\n// Instantiate memory subsystems\n"
     for i, mem in enumerate(memory_chiplets[:2]):
-        top_module += f"    memory_subsystem #(\n"
-    top_module += f"        .tech({mem.memory.technology}),\n"
-    top_module += f"        .count({mem.count})\n"
-    top_module += "    ) mem_{i} (\n"
-    top_module += "        .clk(clk),\n"
-    top_module += "        .rst_n(rst_n)\n"
-    top_module += "    );\n"
+        tech = mem.memory.technology if mem.memory else "DRAM"
+        top_module += "    memory_subsystem #(\n"
+        top_module += f"        .tech({json.dumps(tech, ensure_ascii=False)}),\n"
+        top_module += f"        .count({mem.count})\n"
+        top_module += f"    ) mem_{i} (\n"
+        top_module += "        .clk(clk),\n"
+        top_module += "        .rst_n(rst_n)\n"
+        top_module += "    );\n"
     top_module += "\n// Instantiate compute subsystems\n"
     for i, comp in enumerate(compute_chiplets[:2]):
-        top_module += f"    compute_subsystem #(\n"
-    top_module += f"        .arch({comp.compute.architecture if comp.compute else 'systolic'}),\n"
-    top_module += f"        .precision({comp.compute.precision if comp.compute else 'FP8'})\n"
-    top_module += "    ) comp_{i} (\n"
-    top_module += "        .clk(clk),\n"
-    top_module += "        .rst_n(rst_n),\n"
-    top_module += "        .result(compute_result)\n"
-    top_module += ");\n"
+        arch = comp.compute.architecture if comp.compute else "systolic"
+        precision = comp.compute.precision if comp.compute else "FP8"
+        top_module += "    compute_subsystem #(\n"
+        top_module += f"        .arch({json.dumps(arch, ensure_ascii=False)}),\n"
+        top_module += f"        .precision({json.dumps(precision, ensure_ascii=False)})\n"
+        top_module += f"    ) comp_{i} (\n"
+        top_module += "        .clk(clk),\n"
+        top_module += "        .rst_n(rst_n),\n"
+        top_module += f"        .result({result_signals[i]})\n"
+        top_module += "    );\n"
     top_module += "\nendmodule\n"
 
     manifest["files"].append(
@@ -1075,6 +1116,7 @@ def chip_verify_design(
 
     # Get the design
     design_id, design_spec = store.get_design(design_id_or_name)
+    require_credible_design(design_spec)
 
     # Run base validation
     validation_result = validate_design(design_spec)
@@ -1190,6 +1232,7 @@ def chip_export_full_project(
 
     # Get the design
     design_id, design_spec = store.get_design(design_id_or_name)
+    require_credible_design(design_spec)
 
     export_result = {
         "design_id": design_id,
@@ -1238,6 +1281,12 @@ def chip_export_full_project(
 
 
 # --- Material Device MCP Tools ---
+# Ferrofluid is routed to the particle physics model (models/materials/ferro_*.py,
+# docs/ferrofluid_model.md). The other technologies still return labelled placeholders.
+
+MATERIAL_PLACEHOLDER = (
+    "placeholder: fixed heuristic values, not a physical simulation "
+    "(only ferrofluid has a physics model in this tool)")
 
 def simulate_material_device(
     technology: str,
@@ -1248,14 +1297,22 @@ def simulate_material_device(
     """Simulate physical material behavior.
 
     Args:
-        technology: Material technology type (e.g., "perovskite", "phase_change", "2d_material")
-        parameters: Dictionary of material parameters (e.g., {"carrier_density": 1e24, "mobility": 0.1})
-        fidelity: Simulation fidelity level ("reduced_order", "medium", "full")
-        duration_s: Simulation duration in seconds
+        technology: Material technology type. "ferrofluid" runs a particle physics model;
+            others (e.g. "perovskite", "phase_change", "2d_material") return placeholders.
+        parameters: Dictionary of parameters. Ferrofluid keys include voltage_v,
+            read_frequency_hz, duration_ns, read_delay_ns, separation_um, radius_um, turns,
+            series_resistance_ohm, volume_fraction, core_diameter_nm, size_sigma_ln,
+            coating_nm, anisotropy_j_m3, viscosity_pa_s, temperature_k, carrier_mobile;
+            unknown ferrofluid keys are rejected.
+        fidelity: Simulation fidelity level ("reduced_order", "medium", "full"); the
+            ferrofluid model is the same at every level.
+        duration_s: Simulation duration in seconds (ferrofluid: write pulse length when
+            parameters has no duration_ns)
 
     Returns:
         Dictionary with state evolution, impedance, and energy metrics.
     """
+    from chiplab.models.materials import ferro_interface
     from chiplab.schemas.simulation import FidelityLevel
 
     # Map fidelity string to FidelityLevel
@@ -1266,8 +1323,32 @@ def simulate_material_device(
     }
     fidelity_level = fidelity_map.get(fidelity, FidelityLevel.ANALYTICAL)
 
-    # TODO: Integrate with actual material simulation backends
-    # For now, generate a structured result based on input parameters
+    if ferro_interface.routes_to_ferrofluid({**parameters, "technology": technology}):
+        inputs = {k: v for k, v in parameters.items() if k not in ("technology", "material")}
+        inputs.setdefault("duration_ns", duration_s * 1e9)
+        summary = ferro_interface.technology_summary(inputs, None)
+        metrics = summary["metrics"]
+        return {
+            "technology": technology,
+            "fidelity": FidelityLevel.ANALYTICAL.value,
+            "fidelity_disclaimer": "Reduced-order particle physics model, uncalibrated unless "
+                                   "parameters are labelled fitted; the fidelity argument "
+                                   "does not change it",
+            "state_evolution": {
+                "reads": summary["simulation"]["reads"],
+                "retention": summary["simulation"]["retention"],
+                "duration_s": inputs["duration_ns"] * 1e-9,
+            },
+            "impedance_ohm": metrics["read_impedance_magnitude_ohm"],
+            "energy_pj": metrics["write_drive_energy_j"] * 1e12,
+            "metrics": metrics,
+            "metric_status": summary["metric_status"],
+            "simulation": summary["simulation"],
+            "not_modelled": summary["not_modelled"],
+            "success": True,
+            "error_message": None,
+        }
+
     tech_lower = technology.lower()
 
     # Determine default metrics based on technology type
@@ -1309,6 +1390,7 @@ def simulate_material_device(
         "state_evolution": state_evolution,
         "impedance_ohm": default_impedance,
         "energy_pj": round(default_energy, 4),
+        "model_status": MATERIAL_PLACEHOLDER,
         "success": True,
         "error_message": None,
     }
@@ -1321,104 +1403,108 @@ def configure_material_array(
     n_ports: int,
     arrangement: str,
     pitch_um: float,
-    port_config: dict | None = None,
+    port_config: dict | list | None = None,
 ) -> dict:
     """Configure electrode and cell arrangements for material devices.
 
     Args:
         technology: Material technology type
         n_ports: Number of electrode ports
-        arrangement: Array arrangement type ("linear", "grid", "circular", "hexagonal")
+        arrangement: "linear", "grid", "grid_2x2", "grid_4x4", "circular", "hexagonal" or
+            "custom" (custom needs port_config["positions"] = [[x_um, y_um], ...])
         pitch_um: Pitch in micrometers between adjacent electrodes
-        port_config: Optional per-port configuration dicts
+        port_config: Optional per-port settings, as a list (one dict per port) or a dict
+            keyed "0".."n-1" or "port_0".."port_n-1". Keys: role ("write", "read", "both"),
+            id, bias_voltage, impedance_ohm, functional_group, position_um, and ferrofluid
+            conductor geometry (conductor, radius_um, turns, wire_radius_um,
+            series_resistance_ohm, axis, start_um, end_um, electrode_radius_um)
 
     Returns:
         ElectrodeArray specification dictionary.
     """
-    tech_lower = technology.lower()
+    from chiplab.models.materials import ferro_interface
 
-    # Initialize variables
-    layout = "custom arrangement"
-    spacing = pitch_um
-    total_length = 0
-    radius_um = 0
-    port_positions = []
-
-    # Determine default configuration based on technology and arrangement
-    if arrangement.lower() == "linear":
-        layout = "one-dimensional chain"
-        spacing = pitch_um
-        total_length = pitch_um * (n_ports - 1) if n_ports > 1 else pitch_um
-        port_positions = [i * pitch_um for i in range(n_ports)]
-    elif arrangement.lower() == "grid":
-        # Assume square grid: sqrt(n_ports) x sqrt(n_ports)
-        import math
-        n_per_side = max(1, int(math.ceil(math.sqrt(n_ports))))
-        total_length = pitch_um * (n_per_side - 1)
-        spacing = pitch_um
-        # Generate port positions in a grid
-        port_positions = []
-        for idx in range(n_ports):
-            row = idx // n_per_side
-            col = idx % n_per_side
-            port_positions.append({
-                "x_um": col * pitch_um,
-                "y_um": row * pitch_um,
-            })
-    elif arrangement.lower() == "circular":
-        layout = "circular arrangement"
-        radius_um = pitch_um * n_ports / (2 * 3.14159) if n_ports > 0 else pitch_um
-        port_positions = []
-        for i in range(n_ports):
-            angle = 2 * 3.14159 * i / n_ports if n_ports > 0 else 0
-            port_positions.append({
-                "angle_rad": angle,
-                "radius_um": radius_um,
-                "x_um": radius_um * math.cos(angle),
-                "y_um": radius_um * math.sin(angle),
-            })
-    else:  # hexagonal or default
-        layout = "custom arrangement"
-        spacing = pitch_um
-        port_positions = [{"index": i, "x_um": i * pitch_um, "y_um": 0} for i in range(n_ports)]
-
-    # Apply per-port configurations if provided
-    configured_ports = []
-    if port_config and isinstance(port_config, dict):
-        for i in range(n_ports):
-            port_key = str(i)
-            pc = port_config.get(port_key, {})
-            configured_ports.append({
-                "port_index": i,
-                "position": port_positions[i] if i < len(port_positions) else {"x_um": i * pitch_um, "y_um": 0},
-                "bias_voltage": pc.get("bias_voltage", 0.0),
-                "impedance_ohm": pc.get("impedance_ohm", 50.0),
-                "functional_group": pc.get("functional_group", "default"),
-            })
+    config = port_config or {}
+    custom_positions = None
+    per_port: dict[int, dict] = {}
+    if isinstance(config, list):
+        if len(config) > n_ports:
+            raise ValueError(f"port_config lists {len(config)} ports but n_ports is {n_ports}")
+        items = list(enumerate(config))
+    elif isinstance(config, dict):
+        config = dict(config)
+        custom_positions = config.pop("positions", None)
+        items = []
+        for key, value in config.items():
+            text = str(key).removeprefix("port_")
+            if not text.isdigit() or int(text) >= n_ports:
+                raise ValueError(f"port_config key {key!r} does not name one of the "
+                                 f"{n_ports} ports (use '0'..'{n_ports - 1}')")
+            items.append((int(text), value))
     else:
-        # Default port configuration
-        configured_ports = [
-            {
-                "port_index": i,
-                "position": port_positions[i] if i < len(port_positions) else {"x_um": i * pitch_um, "y_um": 0},
-                "bias_voltage": 0.0,
-                "impedance_ohm": 50.0,
-                "functional_group": "default",
-            }
-            for i in range(n_ports)
-        ]
+        raise ValueError("port_config must be a dict or a list")
+    for index, value in items:
+        if not isinstance(value, dict):
+            raise ValueError(f"port_config entry for port {index} must be a dict, "
+                             f"got {type(value).__name__}")
+        if index in per_port:
+            raise ValueError(f"port {index} is configured twice")
+        per_port[index] = dict(value)
 
-    array_spec = {
+    for settings in per_port.values():
+        role = str(settings.get("type", "")).lower()
+        if role in ("write", "read", "both") and "role" not in settings:
+            settings["role"] = role
+            del settings["type"]
+    for index, settings in per_port.items():
+        ferro_interface.check_keys(settings, ferro_interface.ARRAY_PORT_KEYS, f"port {index}")
+
+    kind = ferro_interface.canonical_arrangement(arrangement)
+    positions = ferro_interface.layout_positions(n_ports, kind, pitch_um, custom_positions)
+    layouts = {"linear": "one-dimensional chain", "circular": "circular arrangement",
+               "hexagonal": "hexagonal lattice", "custom": "custom arrangement"}
+    xs = [p[0] for p in positions]
+    ys = [p[1] for p in positions]
+    if kind == "linear":
+        port_positions = list(xs)
+        total_length = pitch_um * (n_ports - 1) if n_ports > 1 else pitch_um
+    elif kind == "circular":
+        radius_um = pitch_um * n_ports / (2 * math.pi)
+        port_positions = [{"angle_rad": 2 * math.pi * i / n_ports, "radius_um": radius_um,
+                           "x_um": x, "y_um": y} for i, (x, y) in enumerate(positions)]
+        total_length = 2 * radius_um
+    else:
+        port_positions = [{"x_um": x, "y_um": y} for x, y in positions]
+        total_length = max(max(xs) - min(xs), max(ys) - min(ys))
+
+    ferro = ferro_interface.is_ferrofluid(technology)
+    configured_ports = []
+    for i in range(n_ports):
+        settings = per_port.get(i, {})
+        given = "impedance_ohm" in settings
+        port = {
+            "port_index": i,
+            "position": port_positions[i],
+            "bias_voltage": settings.get("bias_voltage", 0.0),
+            "impedance_ohm": settings.get("impedance_ohm", None if ferro else 50.0),
+            "impedance_source": (
+                "user_supplied" if given else
+                "not computed here: use run_multiphysics_simulation" if ferro else
+                "assumed default, not computed"),
+            "functional_group": settings.get("functional_group", "default"),
+        }
+        port.update({k: v for k, v in settings.items() if k not in port})
+        configured_ports.append(port)
+
+    return {
         "technology": technology,
         "arrangement": arrangement,
         "n_ports": n_ports,
         "pitch_um": pitch_um,
-        "layout": layout,
-        "total_length_um": total_length if arrangement.lower() in ["linear", "grid"] else radius_um * 2,
+        "layout": layouts.get(kind, "two-dimensional grid"),
+        "total_length_um": total_length,
         "port_config": configured_ports,
     }
-
-    return array_spec
 
 
 def run_multiphysics_simulation(
@@ -1431,15 +1517,23 @@ def run_multiphysics_simulation(
     """Run coupled physical simulation of material device with electrode array.
 
     Args:
-        device_spec: Device specification dictionary
+        device_spec: Device specification dictionary. technology "ferrofluid" runs the
+            particle physics model and accepts volume_fraction, core_diameter_nm,
+            size_sigma_ln, coating_nm, viscosity_pa_s, temperature_k, anisotropy_j_m3,
+            carrier_mobile, fluid_region, conductivity_s_per_m, relative_permittivity,
+            spectrum_hz and calibration (output of calibrate_material_model).
         electrode_array: Electrode array configuration from configure_material_array
-        write_sequence: List of write waveforms/signals
-        read_sequence: List of read waveforms/signals
-        fidelity: Simulation fidelity level ("reduced_order", "medium", "full")
+        write_sequence: List of write pulses. Ferrofluid: {"port", "voltage_v" (or
+            "amplitude"), "duration_ns", "start_ns"}; pulses on different ports may overlap.
+        read_sequence: List of reads. Ferrofluid: {"port", "frequency_hz", "time_ns" or
+            "delay_ns", "amplitude_v", "bandwidth_hz"}
+        fidelity: Simulation fidelity level ("reduced_order", "medium", "full"); the
+            ferrofluid model is the same at every level.
 
     Returns:
         Dictionary with time-domain waveforms, impedance spectra, and metrics.
     """
+    from chiplab.models.materials import ferro_interface
     from chiplab.schemas.simulation import FidelityLevel
 
     fidelity_level = FidelityLevel.ANALYTICAL
@@ -1451,11 +1545,22 @@ def run_multiphysics_simulation(
     if fidelity in fidelity_map:
         fidelity_level = fidelity_map[fidelity]
 
-    tech = device_spec.get("technology", "generic")
+    tech = device_spec.get("technology") or electrode_array.get("technology", "generic")
     n_ports = electrode_array.get("n_ports", len(electrode_array.get("port_config", [])))
 
-    # Generate write/read waveforms based on sequences
-    # In a real implementation, these would be computed from physical models
+    if ferro_interface.routes_to_ferrofluid(device_spec, electrode_array):
+        result = ferro_interface.multiphysics(
+            device_spec, electrode_array, write_sequence, read_sequence)
+        return {
+            **result,
+            "fidelity": FidelityLevel.ANALYTICAL.value,
+            "fidelity_disclaimer": "Reduced-order particle physics model, uncalibrated "
+                                   "unless parameters are labelled fitted",
+            "success": True,
+            "error_message": None,
+        }
+
+    # Placeholder for the other technologies: echoes the sequences
     write_waveforms = []
     for i, write_sig in enumerate(write_sequence):
         write_waveforms.append({
@@ -1504,6 +1609,7 @@ def run_multiphysics_simulation(
         "read_sequence": read_waveforms,
         "impedance_spectrum": impedance_data,
         "total_energy_pj": round(total_energy_pj, 4),
+        "model_status": MATERIAL_PLACEHOLDER,
         "success": True,
         "error_message": None,
     }
@@ -1527,10 +1633,22 @@ def simulate_material_circuit(
         read_circuit: Read circuit parameters (sensors, amplifiers, etc.)
         analysis: Type of analysis ("transient", "ac", "dc", "noise")
 
+    Ferrofluid uses the particle physics model: write_circuit accepts port, voltage_v,
+    duration_ns, frequency_range, n_freqs; read_circuit accepts port, bandwidth_hz,
+    noise_floor_v_sqrt_hz. Other technologies return placeholders.
+
     Returns:
         Dictionary with circuit waveforms and analysis results.
     """
-    tech = device_spec.get("technology", "generic")
+    from chiplab.models.materials import ferro_interface
+
+    tech = device_spec.get("technology") or electrode_array.get("technology", "generic")
+    if ferro_interface.routes_to_ferrofluid(device_spec, electrode_array):
+        ferro_interface.validate_device_spec(device_spec)
+        device = ferro_interface.build_device(
+            ferro_interface.ports_from_array(electrode_array), electrode_array, device_spec)
+        return {"technology": "ferrofluid", **ferro_interface.circuit_analysis(
+            device, write_circuit, read_circuit, analysis)}
 
     # Perform the requested analysis type
     if analysis.lower() == "dc":
@@ -1620,6 +1738,7 @@ def simulate_material_circuit(
             "read_sensitivity": read_sensitivity,
         }
 
+    result["model_status"] = MATERIAL_PLACEHOLDER
     return result
 
 
@@ -1635,9 +1754,14 @@ def sweep_material_parameters(
         parameters: Dictionary of parameter names to lists of values to sweep
         objective: Optimization objective ("energy_per_bit", "performance", "power")
 
+    Ferrofluid objectives: "write_energy", "power", "read_signal", "read_flux",
+    "decay_time", "peak_field" ("energy_per_bit" is not modelled). The ferrofluid sweep
+    accepts up to 50 combinations.
+
     Returns:
         Dictionary with sweep results including Pareto front.
     """
+    from chiplab.models.materials import ferro_interface
     from chiplab.schemas.simulation import FidelityLevel
 
     fidelity = device_spec.get("fidelity", "reduced_order")
@@ -1651,14 +1775,42 @@ def sweep_material_parameters(
     for vals in parameters.values():
         n_points *= len(vals) if vals else 1
 
+    tech = device_spec.get("technology", "generic")
+    if ferro_interface.routes_to_ferrofluid(device_spec):
+        tech = "ferrofluid"
+        if not parameters or not all(isinstance(v, list) and v for v in parameters.values()):
+            raise ValueError("parameters must map each name to a non-empty list of values")
+        if n_points > 50:
+            raise ValueError(f"{n_points} combinations requested; the limit is 50")
+        names = list(parameters)
+        combos = [dict(zip(names, combo)) for combo in
+                  itertools.product(*(parameters[k] for k in names))]
+        results = ferro_interface.sweep(device_spec, combos, objective)
+        known = ferro_interface.SWEEP_OBJECTIVES.get(objective)
+        ranked = [r for r in results if r["objective_value"] is not None]
+        ranked.sort(key=lambda r: r["objective_value"], reverse=bool(known and known[1]))
+        return {
+            "device_technology": tech,
+            "objective": objective,
+            "objective_status": (
+                f"computed from {known[0]}" if known else
+                f"{objective!r} is not modelled for ferrofluid; available: "
+                f"{list(ferro_interface.SWEEP_OBJECTIVES)}"),
+            "n_parameter_combinations": n_points,
+            "n_simulated_points": len(results),
+            "sweep_points": results,
+            "pareto_front": ranked[:5],
+            "pareto_note": "best points for the single objective, not a multi-objective front",
+            "fidelity": FidelityLevel.ANALYTICAL.value,
+        }
+
     # Generate sweep points
     sweep_points = []
     param_names = list(parameters.keys())
     if n_points > 0:
-        import itertools
         value_combos = list(itertools.product(*[parameters.get(k, []) for k in param_names]))
         for i, combo in enumerate(value_combos[:50]):  # limit to 50 points max
-            point_params = {name: combo[i % len(combo)] if combo else None for name in param_names}
+            point_params = dict(zip(param_names, combo))
             sweep_points.append(point_params)
 
     # Run simulations for each point (using reduced simulations for speed)
@@ -1707,6 +1859,7 @@ def sweep_material_parameters(
         "sweep_points": results,
         "pareto_front": pareto_front,
         "fidelity": fidelity_level.value,
+        "model_status": MATERIAL_PLACEHOLDER,
     }
 
     return sweep_result
@@ -1721,13 +1874,37 @@ def calibrate_material_model(
 
     Args:
         technology: Material technology type
-        experimental_data: Dictionary with experimental measurements
-            e.g., {"resistance_vs_temp": [...], "current_vs_voltage": [...]}
+        experimental_data: Dictionary with experimental measurements. Ferrofluid:
+            {"provenance": {"source": "<instrument/file/publication>"},
+             "datasets": [{"kind": "magnetization_curve", "H_a_per_m": [...],
+                           "M_a_per_m": [...], "sigma_M_a_per_m": [...] (optional)},
+                          {"kind": "susceptibility_spectrum", "frequency_hz": [...],
+                           "chi_real": [...], "chi_loss": [...]},
+                          {"kind": "magnetization_decay", "time_s": [...],
+                           "m_normalized": [...], "initial_field_a_per_m": H0}],
+             "fixed_parameters": {...}}
         parameters_to_fit: List of parameter names to calibrate
 
     Returns:
-        Dictionary with calibrated model and uncertainty quantification.
+        Ferrofluid: least-squares fit with standard errors, identifiability flags and data
+        provenance. Other technologies have no model to fit: supplied values are only
+        averaged and reported as uncalibrated.
     """
+    from chiplab.models.materials import ferro_interface
+
+    if ferro_interface.is_ferrofluid(technology):
+        from chiplab.models.materials.ferro_calibration import fit_parameters
+
+        ferro_interface.check_keys(
+            experimental_data, {"provenance", "datasets", "fixed_parameters"},
+            "experimental_data")
+        fit = fit_parameters(
+            experimental_data.get("datasets") or [], parameters_to_fit,
+            experimental_data.get("provenance") or {},
+            experimental_data.get("fixed_parameters"))
+        return {"calibrated_model": {"technology": technology, **fit},
+                "success": fit["status"] != "failed"}
+
     tech_lower = technology.lower()
 
     # Initialize parameter values with reasonable defaults
@@ -1744,129 +1921,260 @@ def calibrate_material_model(
         else:
             initial_params[param] = 1.0
 
-    # In a real implementation, this would use optimization (least squares, MCMC, etc.)
-    # to fit the material model to the experimental data.
-    # For now, we'll perform a simple parameter estimation.
+    # No physical model exists for these technologies, so nothing is fitted.
+    values = {}
+    sources = {}
+    for param in parameters_to_fit:
+        data = experimental_data.get(param)
+        if data is None or data == []:
+            values[param] = initial_params.get(param, 1.0)
+            sources[param] = "assumed default (no data supplied)"
+        else:
+            values[param] = sum(data) / len(data) if isinstance(data, list) else data
+            sources[param] = "mean of supplied values"
 
-    # Extract relevant data based on technology type
-    if "perovskite" in tech_lower:
-        # Perovskite: fit carrier lifetime, mobility, defect density
-        fitted_params = {}
-        for param in parameters_to_fit:
-            if param in experimental_data:
-                data = experimental_data[param]
-                # Simple: use mean as fitted value
-                fitted_params[param] = sum(data) / len(data) if isinstance(data, list) else data
-            else:
-                fitted_params[param] = initial_params.get(param, 1.0)
-        uncertainty = {param: 0.1 * val for param, val in fitted_params.items()}  # 10% uncertainty
-    elif "phase_change" in tech_lower:
-        # Phase-change: fit switching voltage, resistivity ratio, crystallization time
-        fitted_params = {}
-        for param in parameters_to_fit:
-            if param in experimental_data:
-                data = experimental_data[param]
-                fitted_params[param] = sum(data) / len(data) if isinstance(data, list) else data
-            else:
-                fitted_params[param] = initial_params.get(param, 1.0)
-        uncertainty = {param: 0.15 * val for param, val in fitted_params.items()}  # 15% uncertainty
-    elif "2d" in tech_lower or "graphene" in tech_lower:
-        # 2D materials: fit carrier mobility, density, contact resistance
-        fitted_params = {}
-        for param in parameters_to_fit:
-            if param in experimental_data:
-                data = experimental_data[param]
-                fitted_params[param] = sum(data) / len(data) if isinstance(data, list) else data
-            else:
-                fitted_params[param] = initial_params.get(param, 1.0)
-        uncertainty = {param: 0.2 * val for param, val in fitted_params.items()}  # 20% uncertainty
-    else:
-        # Generic material calibration
-        fitted_params = {}
-        for param in parameters_to_fit:
-            if param in experimental_data:
-                data = experimental_data[param]
-                fitted_params[param] = sum(data) / len(data) if isinstance(data, list) else data
-            else:
-                fitted_params[param] = initial_params.get(param, 1.0)
-        uncertainty = {param: 0.25 * val for param, val in fitted_params.items()}  # 25% uncertainty
-
-    # Build calibrated model record
     calibrated_model = {
         "technology": technology,
-        "fitted_parameters": fitted_params,
-        "parameter_uncertainty": uncertainty,
+        "status": "not_calibrated",
+        "model_status": f"no fitting model for {tech_lower}: values are averages or defaults",
+        "fitted_parameters": values,
+        "parameter_sources": sources,
+        "parameter_uncertainty": {param: None for param in values},
         "provenance": {
-            "source": "experimental_calibration",
-            "method": "least_squares_fit_to_measured_data",
-            "experimental_data_points": sum(len(v) if isinstance(v, list) else 1 for v in experimental_data.values()),
+            "source": "user_supplied_values",
+            "method": "arithmetic mean, no model fit",
+            "experimental_data_points": sum(
+                len(v) if isinstance(v, list) else 1 for v in experimental_data.values()),
         },
-        "fit_quality": {
-            "residual_sum_squared": 0.01,  # placeholder
-            "r_squared": 0.95,  # placeholder
-            "converged": True,
-        },
-        "calibration_timestamp": __import__("time").time(),
+        "fit_quality": {"residual_sum_squared": None, "r_squared": None, "converged": False},
+        "calibration_timestamp": time.time(),
     }
 
-    return {"calibrated_model": calibrated_model, "success": True}
+    return {"calibrated_model": calibrated_model, "success": False}
 
 
 def material_device_to_chiplet(
     device_spec: dict,
     electrode_array: dict,
+    write_sequence: list | None = None,
+    read_sequence: list | None = None,
+    validation_measurements: dict | None = None,
 ) -> dict:
-    """Derive chip-level parameters and create chiplet spec for integration into DesignSpec.
+    """Turn a material device into a chiplet, only if it passes the physics validation gate.
 
     Args:
-        device_spec: Device specification dictionary from material device design
-        electrode_array: Electrode array configuration from configure_material_array
+        device_spec: Device specification with every material parameter supplied or fitted
+        electrode_array: Electrode array configuration with explicit port geometry
+        write_sequence: Operating write pulses (as for run_multiphysics_simulation)
+        read_sequence: Operating reads
+        validation_measurements: Your own measurements, {"provenance": {"source": ...},
+            "datasets": [...]}; see chiplab_validate_material_device
 
     Returns:
-        Chiplet specification dictionary compatible with DesignSpec schema.
+        {"accepted", "chiplet", "credibility"}. chiplet is null unless every check passes;
+        without measurements it is always rejected. An accepted chiplet carries its device
+        record (re-checked by every engine) and only area and drive power.
     """
-    technology = device_spec.get("technology", "generic")
-    n_ports = electrode_array.get("n_ports", 4)
-    pitch = electrode_array.get("pitch_um", 100.0)
-
-    # Derive chiplet parameters from material device specs
-    chiplet_spec = {
-        "id": f"material_device_{technology.replace(' ', '_')}",
+    credibility = chiplab_validate_material_device(
+        device_spec, electrode_array, write_sequence, read_sequence, validation_measurements)
+    if not credibility["accepted"]:
+        failed = [f"{c['id']}: {c['status']}" for c in credibility["checks"]
+                  if c["status"] != "pass"]
+        return {"accepted": False, "success": False, "chiplet": None,
+                "credibility": credibility,
+                "error_message": "rejected by the physics validation gate (" +
+                                 ", ".join(failed) + ")"}
+    numbers = credibility["chiplet_numbers"]
+    chiplet = {
+        "id": "material_device_ferrofluid",
         "type": "material",
-        "technology": technology,
-        "n_ports": n_ports,
-        "pitch_um": pitch,
-        "area_mm2": pitch ** 2 * n_ports * 0.1,  # approximate area
-        "power_watts": n_ports * 0.1,  # approximate power per port
-        "temperature_c": 300,  # nominal temperature
-        "parameters": {
-            "technology": technology,
-            "arrangement": electrode_array.get("arrangement"),
-            "pitch_um": pitch,
-            "total_ports": n_ports,
-        },
-        "interconnect": {
-            "type": "electrode_array",
-            "pitch_um": pitch,
-            "n_ports": n_ports,
-        },
+        "area_mm2": numbers["area_mm2"],
+        "tdp_watts": numbers["tdp_watts"],
+        "material_device": _device_record(
+            device_spec, electrode_array, write_sequence, read_sequence,
+            validation_measurements),
     }
+    return {"accepted": True, "success": True, "chiplet": chiplet,
+            "credibility": credibility, "error_message": None,
+            "field_status": {
+                "area_mm2": "bounding box of the port conductors only",
+                "tdp_watts": "resistive drive power of the supplied write pulses",
+                "performance, capacity, cost": "not modelled"}}
 
-    # Add electrode port details
-    port_config = electrode_array.get("port_config", [])
-    if port_config:
-        chiplet_spec["port_details"] = {
-            "n_ports": len(port_config),
-            "port_configurations": port_config,
-        }
 
-    # Add device-level metrics if available
-    if "impedance_ohm" in device_spec:
-        chiplet_spec["impedance_ohm"] = device_spec["impedance_ohm"]
-    if "energy_pj" in device_spec:
-        chiplet_spec["energy_per_operation_pj"] = device_spec["energy_pj"]
+def _device_record(device_spec: dict, electrode_array: dict, write_sequence: list | None,
+                   read_sequence: list | None, validation_measurements: dict | None) -> dict:
+    return {"device_spec": device_spec, "electrode_array": electrode_array,
+            "write_sequence": write_sequence or [], "read_sequence": read_sequence or [],
+            "validation_measurements": validation_measurements or {}}
 
-    return chiplet_spec
+
+def chiplab_validate_material_device(
+    device_spec: dict,
+    electrode_array: dict,
+    write_sequence: list | None = None,
+    read_sequence: list | None = None,
+    validation_measurements: dict | None = None,
+) -> dict:
+    """Physics validation report for a material device: every check pass, fail or not_run.
+
+    Checks: zero input, parameter sensitivity, unit consistency, boundary limits,
+    conservation, grid convergence, model validity range, no assumed inputs, and agreement
+    with measurements you supply (magnetization curve; susceptibility spectrum or decay;
+    fluid-induced port impedance change). A device is accepted only if all pass.
+
+    validation_measurements: {"provenance": {"source": ...}, "datasets": [
+        {"kind": "magnetization_curve", "H_a_per_m", "M_a_per_m", "sigma_M_a_per_m"},
+        {"kind": "susceptibility_spectrum", "frequency_hz", "chi_real", "chi_loss",
+         "sigma_chi_real", "sigma_chi_loss"},
+        {"kind": "port_impedance_change", "port", "to_port" (optional), "frequency_hz",
+         "delta_z_real_ohm", "delta_z_imag_ohm", "sigma_delta_z_real_ohm",
+         "sigma_delta_z_imag_ohm"}]}
+    Only ferrofluid has checks; other technologies are rejected as not_run. Read-only.
+    """
+    from chiplab.models.materials import ferro_interface
+    from chiplab.models.materials.ferro_validation import evaluate_record
+
+    if not ferro_interface.routes_to_ferrofluid(device_spec, electrode_array):
+        reason = "no physics validation exists for this technology (only ferrofluid)"
+        return {"accepted": False,
+                "rule": "accepted only if every check passes; not_run is never a pass",
+                "summary": {"pass": 0, "fail": 0, "not_run": 1},
+                "checks": [{"id": "physics_model", "status": "not_run",
+                            "requirement": reason, "evidence": reason}]}
+    return evaluate_record(_device_record(
+        device_spec, electrode_array, write_sequence, read_sequence, validation_measurements))
+
+
+def chiplab_ferrofluid_analyze(
+    analysis: str,
+    device_spec: dict,
+    electrode_array: dict,
+    write_sequence: list | None = None,
+    read_sequence: list | None = None,
+    options: dict | None = None,
+) -> dict:
+    """Further ferrofluid analyses from the particle model (uncalibrated unless fitted).
+
+    analysis:
+      "sensitivity": d ln(output)/d ln(parameter). options: relative_step, parameters.
+      "read_disturbance": does reading change the stored state? options: port, amplitude_v,
+          frequency_hz (required), cycles, steps_per_cycle.
+      "retention": how long two written states stay distinguishable above thermal noise.
+          options: port, state_b_write_sequence (default unwritten), bandwidth_hz,
+          snr_threshold.
+      "scaling": predict a larger array from a small one and check it directly. options:
+          small_shape, large_shape, voltage_v (required), pitch_um, geometry. Above 32
+          ports it reports "not_modelled". electrode_array supplies pitch_um only.
+    Read-only.
+    """
+    from chiplab.models.materials import ferro_interface
+
+    return ferro_interface.analyze(analysis, device_spec, electrode_array,
+                                   write_sequence, read_sequence, options)
+
+
+STATE_MODEL_OPTIONS = {
+    "describe": set(),
+    "import_trace": {"time_s", "voltages_v", "temperature_k"},
+    "import_touchstone": {"text", "ports", "time_s", "sigma_ohm", "sigma_relative",
+                          "reference_item"},
+    "simulate": {"read_times_s", "frequency_hz", "initial_state", "substeps"},
+    "sensitivity": {"frequency_hz", "relative_step", "read_time_s"},
+    "multiport": {"write_voltages_v", "duration_s", "frequency_hz", "idle_ports",
+                  "temperature_k", "hold_s", "noise_sigma_ohm", "snr_threshold",
+                  "substeps"},
+    "compare": {"include_points"},
+    "fit": {"parameters_to_fit", "max_evaluations"},
+    "reproduce_reference": {"drive_port", "other_port", "temperature_k", "iterations",
+                            "frequency_points", "zc_definition", "pulse_durations_s",
+                            "skip_model_behaviour"},
+}
+
+
+def chiplab_ferrofluid_state_model(
+    task: str,
+    model: dict | None = None,
+    protocol: dict | None = None,
+    measurements: dict | list | None = None,
+    options: dict | None = None,
+) -> dict:
+    """Electrically programmed N-port ferrofluid: reduced-order state-space model.
+
+    Phenomenological and without default parameter values: fit it to your measurements.
+    Separate from the magnetic coil model. Details: docs/ferrofluid_state_model.md.
+
+    model: {"ports": [...], "ground": {branch parameters}, "coupling": {...} or null,
+        "branches": {"p1|p2": {overrides}}}. protocol: {"segments": [{"duration_s",
+        "voltages_v": {port: V or null=floating}, "temperature_k"}], "repeat"} or a trace
+        {"time_s", "voltages_v": {port: [...]}, "temperature_k"}.
+    task:
+      "describe": parameter names, units, which are required.
+      "import_trace" / "import_touchstone": build a protocol or impedance datasets
+          (options: the arguments named in the docs; uncertainty is mandatory).
+      "simulate": Z(omega, t) as N x N matrices. options: read_times_s, frequency_hz.
+      "sensitivity": effect of each parameter. options: frequency_hz.
+      "multiport": writes alone vs together, retrieval. options: write_voltages_v,
+          duration_s, frequency_hz, noise_sigma_ohm (needed for retrieval).
+      "compare": measured against simulated (measurements required).
+      "fit": options: parameters_to_fit, e.g. ["ground.delta_r_ohm"].
+      "reproduce_reference": status against the two-port experiment of arXiv:2211.08152;
+          "not_reproduced" unless your data for every required item agree.
+    Read-only.
+    """
+    from chiplab.models.materials import ferro_experiment as experiment
+    from chiplab.models.materials import ferro_reference, ferro_statespace
+
+    if task not in STATE_MODEL_OPTIONS:
+        raise ValueError(f"task must be one of {sorted(STATE_MODEL_OPTIONS)}")
+    opts = dict(options or {})
+    unknown = sorted(set(opts) - STATE_MODEL_OPTIONS[task])
+    if unknown:
+        raise ValueError(f"unknown option(s) {unknown} for task {task!r}; allowed: "
+                         f"{sorted(STATE_MODEL_OPTIONS[task])}")
+
+    def need(**values: object) -> None:
+        missing = [name for name, value in values.items() if value is None]
+        if missing:
+            raise ValueError(f"task {task!r} needs {missing}")
+
+    if task == "describe":
+        return {"parameters": ferro_statespace.describe_parameters(),
+                "target_symmetry": list(ferro_statespace.SYMMETRIES),
+                "not_modelled": ferro_statespace.NOT_MODELLED}
+    if task == "import_trace":
+        need(time_s=opts.get("time_s"), voltages_v=opts.get("voltages_v"))
+        return {"protocol": experiment.protocol_from_trace(**opts)}
+    if task == "import_touchstone":
+        need(text=opts.get("text"), ports=opts.get("ports"), time_s=opts.get("time_s"))
+        return {"datasets": experiment.touchstone_datasets(**opts)}
+    if task == "reproduce_reference":
+        return ferro_reference.reproduce(model, measurements, opts)
+    need(model=model)
+    if task == "compare":
+        need(measurements=measurements)
+        return experiment.compare(model, measurements, **opts)
+    if task == "fit":
+        need(measurements=measurements, parameters_to_fit=opts.get("parameters_to_fit"))
+        return experiment.fit(model, measurements, **opts)
+    if task == "multiport":
+        need(write_voltages_v=opts.get("write_voltages_v"),
+             duration_s=opts.get("duration_s"), frequency_hz=opts.get("frequency_hz"))
+        return ferro_statespace.multiport_report(model, **opts)
+    need(protocol=protocol, frequency_hz=opts.get("frequency_hz"))
+    steps = experiment.normalise_protocol(protocol)
+    if task == "sensitivity":
+        return ferro_statespace.sensitivity(model, steps, **opts)
+    need(read_times_s=opts.get("read_times_s"))
+    return ferro_statespace.simulate(model, steps, **opts)
+
+
+def chiplab_model_registry(technology: str | None = None, model_id: str | None = None) -> dict:
+    """Scientific model registry: equations, inputs and units, calibration data, tests,
+    fidelity, limitations and provenance of each registered physics model. Read-only."""
+    from chiplab import model_registry
+
+    return model_registry.describe(technology, model_id)
 
 
 # --- MCP Resources ---
@@ -2339,6 +2647,9 @@ def component_create(definition: dict) -> dict:
     backend. Expressions are parsed by a whitelist interpreter (no code execution). It must
     elaborate cleanly; name@version is immutable."""
     from chiplab import asic_api
+    from chiplab.credibility import refuse_ferrofluid
+
+    refuse_ferrofluid("the custom component library", definition)
     return asic_api.component_create(definition)
 
 
@@ -2834,7 +3145,9 @@ def create_mcp_server() -> MCPServer:
                simulate_ecore_array, chip_uncertainty, asic_get_architecture, asic_assemble,
                asic_simulate_program, asic_competition_report, asic_simulation_levels,
                memory_compile, memory_compare, component_list, component_get,
-               architecture_elaborate, component_simulate, architecture_export_verilog):
+               architecture_elaborate, component_simulate, architecture_export_verilog,
+               chiplab_validate_material_device, chiplab_ferrofluid_analyze,
+               chiplab_ferrofluid_state_model, chiplab_model_registry):
         mcp.tool(annotations=read_only)(fn)
     mcp.tool(name="chip_sweep_parameters", annotations=writes)(_chip_sweep_parameters_tool)
     for fn in (chip_design_from_template, chip_create_design, chip_evaluate,
@@ -2850,8 +3163,34 @@ def create_mcp_server() -> MCPServer:
                simulate_material_circuit, sweep_material_parameters, calibrate_material_model,
                material_device_to_chiplet):
         mcp.tool(annotations=writes)(fn)
+    mcp.tool(annotations=writes)(chiplab_reliability_analyze)
+    mcp.tool(annotations=writes)(chiplab_discover_architectures)
+    mcp.tool(annotations=writes)(chiplab_manufacturing_signoff)
+    mcp.tool(annotations=writes)(chiplab_digital_twin_manage)
+    mcp.tool(annotations=writes)(chiplab_multiscale_surrogate)
+    mcp.tool(annotations=writes)(chiplab_simulate_experimental_tech)
+    mcp.tool(annotations=writes)(chiplab_compare_technologies)
+    mcp.tool(annotations=writes)(chiplab_sweep_experiment)
+    mcp.tool(annotations=writes)(chiplab_custom_device_simulate)
+    mcp.tool(annotations=writes)(chiplab_experiment_ledger)
+    mcp.tool(annotations=writes)(chiplab_custom_circuit_simulate)
+    mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))(chiplab_scale_technology_node)
+    mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))(chiplab_list_process_nodes)
+    mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))(chiplab_list_experimental_technologies)
+    mcp.tool(annotations=writes)(chiplab_2d_beyond_cmos_simulate)
+    mcp.tool(annotations=writes)(chiplab_quantum_device_simulate)
+    mcp.tool(annotations=writes)(chiplab_spice_netlist_run)
+    mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, openWorldHint=True))(chiplab_agent_run)
+    mcp.tool(annotations=writes)(chiplab_chipro_eda_flow)
+    mcp.tool(annotations=writes)(chiplab_mage_rtl_pipeline)
+    mcp.tool(annotations=writes)(chiplab_chia_codesign_loop)
+    mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))(chiplab_local_llm_models)
     mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, openWorldHint=True))(
         chip_refresh_prices)
+    from chiplab import mcp_learning_tools   # IMC lab + learning loop
+    mcp_learning_tools.register(mcp, read_only, writes)
+    from chiplab import mcp_research_tools   # brain, review, PIM lab, research, DFT, plugins
+    mcp_research_tools.register(mcp, read_only, writes)
 
 
 

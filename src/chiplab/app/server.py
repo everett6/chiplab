@@ -23,7 +23,7 @@ from starlette.responses import FileResponse, JSONResponse, StreamingResponse
 from starlette.routing import Route
 
 from chiplab.activity import ActivityLog
-from chiplab.app import asic_routes, tools_api
+from chiplab.app import agent_routes, asic_routes, custom_memory_routes, tools_api
 from chiplab.cost import model as cost_model
 from chiplab.cost import prices
 from chiplab.engine.validator import validate_design
@@ -298,6 +298,12 @@ def create_app(db_path: str) -> Starlette:
     async def index(_: Request) -> FileResponse:
         return FileResponse(STATIC / "studio.html")
 
+    async def studio(_: Request) -> FileResponse:
+        return FileResponse(STATIC / "studio.html")
+
+    async def memory(_: Request) -> FileResponse:
+        return FileResponse(STATIC / "memory.html")
+
     async def live(_: Request) -> FileResponse:
         return FileResponse(STATIC / "index.html")
 
@@ -310,6 +316,16 @@ def create_app(db_path: str) -> Starlette:
     async def layout3d_js(_: Request) -> FileResponse:
         return FileResponse(STATIC / "layout3d.js", media_type="text/javascript")
 
+    async def eda_diagrams_js(_: Request) -> FileResponse:
+        return FileResponse(STATIC / "eda_diagrams.js", media_type="text/javascript")
+
+    async def vendor_asset(request: Request) -> FileResponse:
+        rel = request.path_params["path"]
+        target = (STATIC / "vendor" / rel).resolve()
+        if not str(target).startswith(str((STATIC / "vendor").resolve())):
+            return JSONResponse({"error": "invalid path"}, status_code=403)
+        return FileResponse(target)
+
     async def scene(request: Request) -> JSONResponse:
         q = request.query_params
         try:
@@ -317,6 +333,8 @@ def create_app(db_path: str) -> Starlette:
                                            q.get("workload", "llm8_decode"))
         except (ValueError, KeyError, TypeError) as exc:
             return JSONResponse({"error": f"{exc}"[:600]}, status_code=400)
+        except Exception as exc:
+            return JSONResponse({"error": f"Scene build failed: {type(exc).__name__}: {exc}"[:600]}, status_code=400)
         return JSONResponse(json.loads(json.dumps(data, default=str)))
 
     async def events(request: Request) -> JSONResponse:
@@ -351,8 +369,15 @@ def create_app(db_path: str) -> Starlette:
         out = []
         for d in store.list_designs():
             ev = evals.get(d["design_id"])
-            out.append({**d, "evaluated": bool(ev),
+            has_chiplets = True
+            try:
+                _, sp = store.get_design(d["design_id"])
+                has_chiplets = bool(sp.chiplets)
+            except Exception:
+                has_chiplets = False
+            out.append({**d, "has_chiplets": has_chiplets, "evaluated": bool(ev),
                         "summary": summarize(ev) if ev else ""})
+        out.sort(key=lambda x: (not x.get("has_chiplets"), not x.get("evaluated"), x.get("name", "")))
         return JSONResponse(out)
 
     async def design(request: Request) -> JSONResponse:
@@ -469,10 +494,16 @@ def create_app(db_path: str) -> Starlette:
         Route("/", index),
         Route("/live", live),
         Route("/studio.js", studio_js),
+        Route("/memory", memory),
+        Route("/studio", studio),
         Route("/layout3d.js", layout3d_js),
+        Route("/eda_diagrams.js", eda_diagrams_js),
+        Route("/vendor/{path:path}", vendor_asset),
         Route("/toolviews.js", toolviews_js),
         *tools_api.routes(store, db_path, studio_scene),
         *asic_routes.routes(_lab),
+        *agent_routes.routes(_lab),
+        *custom_memory_routes.routes(_lab, store),
         Route("/api/studio/scene", scene),
         Route("/api/studio/edit", _lab(lambda d: studio_edit(store, d)), methods=["POST"]),
         Route("/api/events", events),

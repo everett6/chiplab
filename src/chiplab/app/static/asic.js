@@ -51,6 +51,7 @@ $("tabs").onclick = (e) => {
 // ---------------------------------------------------------------- overview
 async function load() {
   O = await api("/api/asic/overview");
+  statusBar();
   const a = O.architecture, c = a.competition, R = O.report;
   $("comp").innerHTML = Object.entries({ Process: c.process, Flow: c.flow, "Max tiles": c.max_tiles, Deadline: c.deadline,
     Baseline: c.baseline_protocols.join(", "), Stretch: c.stretch_protocols.join(", "), Source: c.source }).map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("");
@@ -122,14 +123,14 @@ function drawWave(w, oe, total) {
 document.addEventListener("click", async (e) => {
   const b = e.target.closest("[data-run]"); if (!b) return;
   const kind = b.dataset.run, busy = kind === "protocols" ? $("labbusy") : kind === "synthesis_ihp" ? $("ihpbusy") : kind === "hardening_import" ? $("hardbusy") : $("verbusy");
-  busy.textContent = `running ${kind}…`;
+  busy.textContent = `running ${kind}…`; $("sb-msg").textContent = `running ${kind}…`; $("sb-led").className = "led warn";
   document.querySelectorAll("[data-run]").forEach((x) => (x.disabled = true));
   try {
     const r = await api("/api/asic/run", { kind, backend: b.dataset.backend || "rtl", seeds: +$("seeds").value, cycles: kind === "formal" ? 20 : +$("vcycles").value });
     if (kind === "protocols") showProtocols(r);
     if (["tt_smoke", "lint", "synthesis", "synthesis_ihp", "icarus_tt", "formal", "gate_sim"].includes(kind)) busy.textContent = `${kind}: ${(r.ok ?? r.passed) ? "passed" : "failed"}`;
     if (kind === "hardening_import") busy.textContent = r.ok ? `run ${r.run_id}: ${r.conclusion}` : r.error;
-    O = await api("/api/asic/overview"); renderResults();
+    O = await api("/api/asic/overview"); renderResults(); statusBar(); $("sb-msg").textContent = `${kind} finished`;
     if (!["tt_smoke", "lint", "synthesis", "synthesis_ihp", "icarus_tt", "formal", "gate_sim", "hardening_import"].includes(kind)) busy.textContent = "";
   } catch (err) { busy.textContent = err.message; } finally { document.querySelectorAll("[data-run]").forEach((x) => (x.disabled = false)); }
 });
@@ -297,4 +298,17 @@ $("c-create").onclick = async () => {
   catch (e) { $("c-cres").textContent = e.message; }
 };
 
+function statusBar() {
+  const R = O.report, V = R.verification, H = R.hardening, T = R.flow.tools.tools || {};
+  const set = (id, v) => { $(id).textContent = v; };
+  $("sb-led").className = "led ok"; set("sb-conn", "server online");
+  set("sb-top", `${R.design.top} · ${R.design.lanes} lanes`);
+  set("sb-rtl", (V.regression.rtl_hash || R.protocol_tests.rtl_hash || "–").slice(0, 8) + (V.regression.stale ? " (stale)" : ""));
+  const g = V.regression, p = R.protocol_tests;
+  set("sb-ver", `${p.passed ?? "–"}/${p.total ?? "–"} proto · ${g.passed ?? "–"}/${g.seeds ?? "–"} lockstep`);
+  set("sb-ci", H.status ? "not imported" : `run ${H.run_id} · ${H.hardened ? "pass" : "fail"} @ ${H.clock_mhz} MHz`);
+  const have = Object.entries(T).filter(([, v]) => v.installed).map(([k]) => k);
+  set("sb-tools", have.length ? have.join(" ") : "none");
+}
+setInterval(() => { const d = new Date(); $("sb-clock").textContent = d.toLocaleTimeString([], { hour12: false }); }, 1000);
 load().catch((e) => { document.querySelector("main").insertAdjacentHTML("afterbegin", `<div class="pill bad">${esc(e.message)}</div>`); });

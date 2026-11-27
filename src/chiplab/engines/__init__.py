@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from typing import Literal
 
+from chiplab.credibility import refuse_ferrofluid
+
 from .material_solver import ReducedOrderSolver
 from .reduced_order_solver import SpatialMultiphysicsSolver
 from .multiphysics_solver import ParticleScaleSolver
@@ -18,6 +20,7 @@ from .multiphysics_solver import ParticleScaleSolver
 
 def get_solver(
     fidelity_level: Literal["analytical", "discrete_event", "specialized"] | None = None,
+    material: str | None = None,
 ) -> ReducedOrderSolver | SpatialMultiphysicsSolver | ParticleScaleSolver:
     """Factory function to get a solver for the given fidelity level.
 
@@ -31,7 +34,10 @@ def get_solver(
     -------
     ReducedOrderSolver | SpatialMultiphysicsSolver | ParticleScaleSolver
         An instance of the appropriate solver class.
+    material : str, optional
+        Ferrofluid is refused: these generic solvers have no ferrofluid physics.
     """
+    refuse_ferrofluid("get_solver", material)
     if fidelity_level is None or fidelity_level == "analytical":
         return ReducedOrderSolver()
     elif fidelity_level == "discrete_event":

@@ -9,6 +9,8 @@ from __future__ import annotations
 from chiplab.schemas.common import TrackedValue, Provenance
 import numpy as np
 
+from chiplab.core.gpu import GPUBackend, get_gpu_backend
+
 
 def _solve_laplace_2d(
     rows: int,
@@ -18,6 +20,7 @@ def _solve_laplace_2d(
     boundary_conditions: dict | None = None,
     max_iterations: int = 10000,
     tolerance: float = 1e-6,
+    device: str = "auto",
 ) -> np.ndarray:
     """Solve 2D Laplace equation using finite difference method.
 
@@ -41,17 +44,20 @@ def _solve_laplace_2d(
         Maximum Gauss-Seidel iterations.
     tolerance : float, default 1e-6
         Convergence tolerance.
+    device : str, default "auto"
+        Device to run solver on. "auto", "cpu", or "cuda".
 
     Returns
     -------
     np.ndarray
         2D potential distribution (voltage grid).
     """
-    # Initialize voltage grid with zeros
+    backend = get_gpu_backend(device=device)
+
     V = np.zeros((rows, cols))
 
-    # SOR iteration
     omega = 1.5  # over-relaxation factor
+
     for iteration in range(max_iterations):
         V_old = V.copy()
 
@@ -93,6 +99,7 @@ def ir_drop_grid(
     grid_rows: int,
     grid_cols: int,
     metal_resistivity: float,
+    device: str = "auto",
 ) -> dict:
     """Analyze IR drop in a power grid using 2D finite difference solver.
 
@@ -114,6 +121,9 @@ def ir_drop_grid(
         Number of columns in the power grid.
     metal_resistivity : float
         Metal resistivity in ohm-cm.
+    device : str, default "auto"
+        Device to run solver on. "auto", "cpu", or "cuda".
+        If "auto", uses GPU if available, otherwise CPU.
 
     Returns
     -------
@@ -125,6 +135,8 @@ def ir_drop_grid(
         - "voltage_distribution": np.ndarray, 2D voltage grid in volts
         - "min_voltage": float, minimum voltage in the grid
     """
+    backend = get_gpu_backend(device=device)
+
     # Initialize conductance matrix properly
     # Conductance G = 1/R, where R = rho * L / A
     # For a grid with unit spacing, we normalize resistivity to conductance per node
@@ -159,7 +171,9 @@ def ir_drop_grid(
     current_source = np.full((grid_rows, grid_cols), current_density * pitch_cm ** 2)
 
     # Solve 2D Laplace equation for voltage distribution
-    V = _solve_laplace_2d(grid_rows, grid_cols, conductance, current_source)
+    V = _solve_laplace_2d(
+        grid_rows, grid_cols, conductance, current_source, device=device
+    )
 
     # Calculate IR drop from nominal voltage
     # IR drop = V_nominal - V_actual at each point
@@ -253,7 +267,7 @@ def dynamic_ir_drop(
     # Approximate grid inductance based on spacing and geometry
     # L_eff ≈ r_grid * scaling_factor (empirical)
 
-    # di/dt contribution scaled by switching activity
+    # di/dt contribution scaled by switching factor
     di_dt_scaled = di_dt * switching_factor
 
     # Effective inductance: L_eff ≈ r_grid * 1e-9 (rough empirical factor)

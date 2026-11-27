@@ -15,6 +15,11 @@ from pydantic import BaseModel, Field
 
 import numpy as np
 
+from chiplab.credibility import (
+    CredibilityError,
+    mentions_ferrofluid,
+    require_credible_design,
+)
 from chiplab.schemas.common import Provenance, TrackedValue
 
 from chiplab.schemas.design import DesignSpec
@@ -195,6 +200,11 @@ def derive_chip_parameters(
         if bits_per_cell == bpc:
             tech = t
             break
+
+    if tech == TechnologyType.FERROFLUID or mentions_ferrofluid(device_state):
+        raise CredibilityError(
+            "derive_chip_parameters has no physical basis for ferrofluid (it would invent "
+            "capacity, bandwidth and cost); use material_device_to_chiplet with measurements")
 
     # ---- Capacity: cell_count × bits_per_cell → GB ----
     # 1 byte = 8 bits, 1 GB = 10^9 bytes
@@ -515,6 +525,9 @@ def integrate_into_design(
         deep=True,
     )
 
+    # The numbers above (capacity, latency, energy) are not physics-derived, so the same
+    # gate that guards the engines refuses the result.
+    require_credible_design(updated_design)
     return updated_design
 
 
@@ -614,6 +627,7 @@ def multi_technology_support() -> dict[TechnologyType, dict[str, Any]]:
             "derive_chip_parameters": derive_chip_parameters,
             "integrate_into_design": integrate_into_design,
             "bits_per_cell": _BITS_PER_CELL[tech],
+            "status": "assumed placeholders, not validated device data",
         }
 
     return registry

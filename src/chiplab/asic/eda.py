@@ -8,6 +8,7 @@ cell counts are not IHP area.
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -137,13 +138,23 @@ def _build_gl() -> Path:
     binary = out / "Vpem_core"
     if binary.exists():
         return binary
-    out.mkdir(exist_ok=True)
+    # Build in a fresh directory and move it into place only when it succeeds: an interrupted or
+    # concurrent build used to leave obj/ with stale precompiled headers that broke every later build.
+    tmp = net.parent / f"obj.tmp{os.getpid()}"
+    shutil.rmtree(tmp, ignore_errors=True)
+    tmp.mkdir()
     shutil.copy(flow.RTL / "tb_core.cpp", net.parent / "tb_core.cpp")
     cmd = [verify.verilator(), "--cc", "--exe", "--build", "-O2", "-Wno-fatal", "-Wno-lint", "-Wno-style",
-           "--top-module", "pem_core", "--Mdir", str(out), str(net), str(net.parent / "tb_core.cpp")]
+           "--top-module", "pem_core", "--Mdir", str(tmp), str(net), str(net.parent / "tb_core.cpp")]
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
-    if r.returncode != 0 or not binary.exists():
+    if r.returncode != 0 or not (tmp / "Vpem_core").exists():
+        shutil.rmtree(tmp, ignore_errors=True)
         raise RuntimeError("verilator build of the gate netlist failed:\n" + (r.stderr or r.stdout)[-2000:])
+    if binary.exists():                 # another process finished first
+        shutil.rmtree(tmp, ignore_errors=True)
+        return binary
+    shutil.rmtree(out, ignore_errors=True)
+    tmp.rename(out)
     return binary
 
 

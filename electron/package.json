@@ -1,0 +1,53 @@
+{
+  "name": "chiplab-desktop",
+  "version": "0.2.0",
+  "description": "ChipLab Desktop — AI-native chip, circuit, and multiphysics simulator for Linux",
+  "main": "main.js",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron --no-sandbox --disable-gpu-sandbox --enable-unsafe-swiftshader --disable-dev-shm-usage .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --linux AppImage deb"
+  },
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "dev.chiplab.desktop",
+    "productName": "ChipLab",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json",
+      "README.md"
+    ],
+    "extraResources": [
+      {
+        "from": "../src",
+        "to": "src",
+        "filter": [
+          "**/*",
+          "!**/__pycache__/**",
+          "!**/*.pyc"
+        ]
+      },
+      {
+        "from": "../docs",
+        "to": "docs"
+      }
+    ],
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Science",
+      "maintainer": "ChipLab",
+      "synopsis": "ChipLab AI-native chip and multiphysics simulation studio"
+    }
+  }
+}

@@ -1,4 +1,9 @@
-"""Electrode array configuration and simulation for configurable multi-port ferrofluid devices."""
+"""Electrode array configuration and simulation for configurable multi-port ferrofluid devices.
+
+HEURISTIC: the write, read, coupling, impedance, retention and noise rules here are
+placeholder scalings, not physics. Port layout is usable; for physical multi-port results
+use ``ferro_device`` (docs/ferrofluid_model.md).
+"""
 
 from __future__ import annotations
 
@@ -149,7 +154,7 @@ class ElectrodeArray:
             impedances[port.id] = TrackedValue(
                 value=float(impedance_magnitude),
                 unit="Ω",
-                provenance=Provenance.MEASURED,
+                provenance=Provenance.ASSUMED,
                 notes=f"phase:{impedance_phase:.4f}",
             )
             self.material_state[port]["impedance"] = float(freq_dependent)
@@ -358,7 +363,7 @@ class ElectrodeArray:
             noise[port.id] = TrackedValue(
                 value=noise_value,
                 unit="V",
-                provenance=Provenance.MEASURED,
+                provenance=Provenance.ASSUMED,
             )
 
         return noise

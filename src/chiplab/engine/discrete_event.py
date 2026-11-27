@@ -33,6 +33,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..credibility import require_credible_design
 from ..schemas.design import DesignSpec
 from ..schemas.simulation import (
     AssumptionRecord,
@@ -458,6 +459,7 @@ def run_discrete_event_simulation(
     run_id = f"discrete_event_{design_id}_{int(time.time())}_{uuid.uuid4().hex[:6]}"
     from ..backends.ecore import apply_ecore_to_design
     from ..schemas.design import plain_design
+    require_credible_design(design)
     original_design = design  # with TrackedValues: the analytical pass records their provenance
     design, _ = plain_design(design)
     design, _, _ = apply_ecore_to_design(design)  # eCore PIM numbers; recorded by analytical

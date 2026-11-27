@@ -210,12 +210,14 @@ def _internal(c: dict[str, Any], util: dict[str, Any]) -> dict[str, Any]:
 
 
 def _pcb(pkg_w: float, pkg_d: float, power_w: float, p: dict[str, Any]) -> dict[str, Any]:
+    from chiplab.studio.pcb_cad import build_pcb_cad_details, chamfered_route
+
     board_w = max(3.0 * pkg_w, 200.0)
     board_d = max(2.2 * pkg_d, 111.0)
     pkg_x = -board_w / 2 + pkg_w / 2 + 25.0
     amps = power_w / p["core_voltage_v"]
     phases = max(2, math.ceil(amps / p["vrm_amps_per_phase"]))
-    parts, traces = [], []
+    parts, traces, vrm_positions = [], [], []
     col_x = pkg_x + pkg_w / 2 + 18.0
     per_col = max(1, math.ceil(phases / 2))
     pitch = min(9.0, (board_d - 20) / per_col)
@@ -223,12 +225,13 @@ def _pcb(pkg_w: float, pkg_d: float, power_w: float, p: dict[str, Any]) -> dict[
         col, row = divmod(k, per_col)
         x = col_x + col * 22.0
         y = -per_col * pitch / 2 + pitch / 2 + row * pitch
+        vrm_positions.append((x, y))
         parts.append({"kind": "power_stage", "id": f"vrm{k}", "x": x, "y": y, "w": 5, "d": 6, "h": 1.0,
                       "metrics": {"phase": k + 1, "amps": round(amps / phases, 1)}})
         parts.append({"kind": "inductor", "id": f"ind{k}", "x": x + 8, "y": y, "w": 7, "d": 7, "h": 5,
                       "metrics": {"phase": k + 1}})
         traces.append({"kind": "power", "width": 2.0,
-                       "points": [[x, y], [pkg_x + pkg_w / 2 + 2, y * 0.5]]})
+                       "points": chamfered_route(x, y, pkg_x + pkg_w / 2 + 2, y * 0.5)})
     for k in range(int(phases * 2)):
         parts.append({"kind": "capacitor", "id": f"cap{k}", "x": pkg_x - pkg_w / 2 + (k + 0.5) * pkg_w / (phases * 2),
                       "y": -pkg_d / 2 - 6, "w": 2.5, "d": 2.5, "h": 3, "metrics": {}})
@@ -241,15 +244,21 @@ def _pcb(pkg_w: float, pkg_d: float, power_w: float, p: dict[str, Any]) -> dict[
     fx0 = pkg_x - 40
     for k in range(lanes):
         fx = fx0 + k * 2.2
-        traces.append({"kind": "pcie", "width": 0.3,
-                       "points": [[pkg_x - pkg_w / 4 + k * pkg_w / (2 * lanes), -pkg_d / 2],
-                                  [fx, -board_d / 2 + 14], [fx, -board_d / 2 + 6]]})
+        sx = pkg_x - pkg_w / 4 + k * pkg_w / (2 * lanes)
+        traces.append({"kind": "pcie", "width": 0.35,
+                       "points": chamfered_route(sx, -pkg_d / 2, fx, -board_d / 2 + 10) + [[fx, -board_d / 2 + 5.5]]})
     parts.append({"kind": "edge_connector", "id": "pcie", "x": fx0 + lanes * 1.1, "y": -board_d / 2 + 3,
                   "w": lanes * 2.2 + 4, "d": 6, "h": 0.1, "metrics": {"lanes": lanes}})
+    cad = build_pcb_cad_details(
+        board_w=board_w, board_d=board_d, board_t=1.6,
+        pkg_x=pkg_x, pkg_w=pkg_w, pkg_d=pkg_d,
+        vrm_positions=vrm_positions, amps=amps, lanes=lanes, fx0=fx0,
+    )
     return {"w": board_w, "d": board_d, "t": 1.6, "package_x": pkg_x, "parts": parts,
-            "traces": traces, "vrm": {"phases": phases, "amps": round(amps, 1),
-                                      "efficiency": p["vrm_efficiency"],
-                                      "loss_w": round(power_w * (1 / p["vrm_efficiency"] - 1), 2)}}
+            "traces": traces, "cad": cad,
+            "vrm": {"phases": phases, "amps": round(amps, 1),
+                    "efficiency": p["vrm_efficiency"],
+                    "loss_w": round(power_w * (1 / p["vrm_efficiency"] - 1), 2)}}
 
 
 def build_scene(design: DesignSpec, design_id: str, workload: WorkloadSpec | None = None,

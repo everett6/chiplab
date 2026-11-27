@@ -16,7 +16,9 @@ def brownian_motion(
 ) -> np.ndarray:
     """Brownian motion of nanoparticles in a fluid.
 
-    Updates particle positions due to thermal random forces.
+    Updates particle positions due to thermal random forces.  Each Cartesian
+    displacement is normal with variance 2*D*dt (mean squared distance 6*D*dt), with the
+    Stokes-Einstein D for an assumed 10 nm hydrodynamic diameter in water (1 mPa s).
 
     Parameters
     ----------
@@ -46,8 +48,9 @@ def brownian_motion(
 
     D = kB * T / (3.0 * np.pi * eta * particle_diameter)  # diffusion coefficient m²/s
 
-    # Time step displacement std dev: sqrt(6 * D * dt) for 3D
-    displacement_std = np.sqrt(6.0 * D * float(dt) if not isinstance(dt, TrackedValue) else dt.value)
+    # Per-axis standard deviation; the three axes together give <r^2> = 6 D dt
+    step = float(dt.value if isinstance(dt, TrackedValue) else dt)
+    displacement_std = np.sqrt(2.0 * D * step)
 
     # Generate random displacements
     displacements = np.random.normal(
@@ -69,7 +72,10 @@ def neel_relaxation(
     field: np.ndarray,
     dt: float | TrackedValue,
 ) -> np.ndarray:
-    """Neel relaxation of magnetic moments.
+    """Neel relaxation of magnetic moments (HEURISTIC, kept for existing callers).
+
+    The energy barrier below is a placeholder, so the time scale is not physical; use
+    ``ferro_particles.ParticleEnsemble`` for Neel-Arrhenius relaxation times.
 
     Models the thermal relaxation of magnetic moments in nanoparticles
     towards equilibrium alignment with an external field.
@@ -109,7 +115,7 @@ def neel_relaxation(
     # Neel relaxation time: τ_N = τ_0 * exp(KV / kB*T)
     # For simplicity, use typical values: τ_0 = 1e-9 s, K_V / kB ≈ 1000 K
     tau_0 = 1e-9  # attempt time s
-    KV_kB = 1000.0  # effective energy barrier in K
+    KV_kB = 1.0  # effective energy barrier in K (reduced for room-temp relaxation)
 
     # Initial relaxation time - use magnitude of moments as energy scale
     moment_mags = np.linalg.norm(particles, axis=1)

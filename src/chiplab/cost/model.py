@@ -17,6 +17,7 @@ import math
 from functools import lru_cache
 from typing import Any
 
+from chiplab.credibility import is_material_chiplet, require_credible_design
 from chiplab.schemas.common import unwrap_value
 from chiplab.schemas.design import ChipletSpec, DesignSpec
 
@@ -140,6 +141,7 @@ def estimate_unit_cost(design: DesignSpec, volume: int = 100_000, scenario: str 
     {"area_cm2": 300, "layers": 12, "hdi": False, "high_speed": True, "units_per_board": 1}.
     """
     from ..schemas.design import plain_design
+    require_credible_design(design)
     design, _ = plain_design(design)
     if scenario not in ("value", "low", "high"):
         raise ValueError("scenario must be 'value', 'low' or 'high'")
@@ -160,7 +162,13 @@ def estimate_unit_cost(design: DesignSpec, volume: int = 100_000, scenario: str 
         tdp_total += (_num(ch.tdp_watts, 0.0) or 0.0) * count
         tech = memory_tech_for(ch.memory.technology if ch.memory else None) or \
             memory_tech_for(ch.type)
-        if tech:
+        if is_material_chiplet(ch):
+            area = _num(ch.area_mm2, 0.0) or 0.0
+            die_area_total += area * count
+            line = {"kind": "material", "cost_per_part_usd": 0.0, "footprint_mm2": area}
+            warnings.append(f"{ch.id or ch.type}: material device cost is NOT MODELLED; the "
+                            "totals exclude it and are incomplete")
+        elif tech:
             part = _memory_part(ch, tech, scenario, warnings)
             memory += part["cost_per_part_usd"] * count
             die_area_total += part["footprint_mm2"] * count
@@ -269,7 +277,7 @@ def _keys_used(result: dict[str, Any]) -> list[str]:
     for line in result["chiplets"]:
         if line["kind"] == "memory":
             keys.add(f"memory.{line['technology']}")
-        else:
+        elif line["kind"] != "material":  # no price data exists for material devices
             node = line["node"].split()[-1]
             keys.update({f"wafer.tsmc.{node}", f"defect_density.tsmc.{node}",
                          f"mask_set.tsmc.{node}"})
