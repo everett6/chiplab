@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from chiplab.credibility import require_credible_design
 from chiplab.schemas.design import DesignSpec
 from chiplab.schemas.simulation import ComparisonResult, SimulationResult, SweepResult
 
@@ -88,6 +89,8 @@ class ExperimentStore:
     def save_design(self, design: DesignSpec, design_id: str | None = None) -> str:
         """Save a design spec to the database. Returns the design_id."""
         import yaml
+
+        require_credible_design(design)
 
         now = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
         spec_yaml = yaml.dump(design.model_dump(), default_flow_style=False, sort_keys=False)

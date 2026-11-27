@@ -51,6 +51,7 @@ $("tabs").onclick = (e) => {
 // ---------------------------------------------------------------- overview
 async function load() {
   O = await api("/api/asic/overview");
+  statusBar();
   const a = O.architecture, c = a.competition, R = O.report;
   $("comp").innerHTML = Object.entries({ Process: c.process, Flow: c.flow, "Max tiles": c.max_tiles, Deadline: c.deadline,
     Baseline: c.baseline_protocols.join(", "), Stretch: c.stretch_protocols.join(", "), Source: c.source }).map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("");
@@ -121,15 +122,16 @@ function drawWave(w, oe, total) {
 // ---------------------------------------------------------------- runs
 document.addEventListener("click", async (e) => {
   const b = e.target.closest("[data-run]"); if (!b) return;
-  const kind = b.dataset.run, busy = kind === "protocols" ? $("labbusy") : kind === "synthesis_ihp" ? $("ihpbusy") : $("verbusy");
-  busy.textContent = `running ${kind}…`;
+  const kind = b.dataset.run, busy = kind === "protocols" ? $("labbusy") : kind === "synthesis_ihp" ? $("ihpbusy") : kind === "hardening_import" ? $("hardbusy") : $("verbusy");
+  busy.textContent = `running ${kind}…`; $("sb-msg").textContent = `running ${kind}…`; $("sb-led").className = "led warn";
   document.querySelectorAll("[data-run]").forEach((x) => (x.disabled = true));
   try {
     const r = await api("/api/asic/run", { kind, backend: b.dataset.backend || "rtl", seeds: +$("seeds").value, cycles: kind === "formal" ? 20 : +$("vcycles").value });
     if (kind === "protocols") showProtocols(r);
     if (["tt_smoke", "lint", "synthesis", "synthesis_ihp", "icarus_tt", "formal", "gate_sim"].includes(kind)) busy.textContent = `${kind}: ${(r.ok ?? r.passed) ? "passed" : "failed"}`;
-    O = await api("/api/asic/overview"); renderResults();
-    if (!["tt_smoke", "lint", "synthesis", "synthesis_ihp", "icarus_tt", "formal", "gate_sim"].includes(kind)) busy.textContent = "";
+    if (kind === "hardening_import") busy.textContent = r.ok ? `run ${r.run_id}: ${r.conclusion}` : r.error;
+    O = await api("/api/asic/overview"); renderResults(); statusBar(); $("sb-msg").textContent = `${kind} finished`;
+    if (!["tt_smoke", "lint", "synthesis", "synthesis_ihp", "icarus_tt", "formal", "gate_sim", "hardening_import"].includes(kind)) busy.textContent = "";
   } catch (err) { busy.textContent = err.message; } finally { document.querySelectorAll("[data-run]").forEach((x) => (x.disabled = false)); }
 });
 function showProtocols(r) {
@@ -164,6 +166,14 @@ function renderResults() {
     <div>${table([["Tiles", (t) => t[0]], ["Area µm²", (t) => f(t[1].area_um2, 0), "n"], ["Cell density", (t) => (t[1].cell_density * 100).toFixed(0) + "%", "n"], ["Fit", (t) => pill(t[1].verdict === "likely" ? "ok" : t[1].verdict)]],
       Object.entries(ih.tiles).filter(([, t]) => t.cell_density < 2))}</div></div>
     <div class="faint">${esc(ih.fidelity)}. Tile outlines: ${esc(ih.tile_source)}.</div>`;
+  const H = R.hardening, yn = (v) => pill(v ? "passed" : "failed");
+  $("hard").innerHTML = H.status ? pill("not run") : `<dl class="kv"><dt>Run</dt><dd><a href="${esc(H.url)}" target="_blank" rel="noopener">${esc(H.run_id)}</a> ${pill(H.hardened ? "passed" : H.jobs && H.jobs.gds === "success" ? "GDS built" : "failed")} ${H.stale || !H.rtl_matches_repo ? pill("stale: RTL changed") : ""}</dd>
+    <dt>Clock</dt><dd>${H.clock_mhz ?? "?"} MHz</dd><dt>Placed and routed</dt><dd>${yn(H.routed)}</dd><dt>Magic DRC / LVS</dt><dd>${yn(H.drc_clear)} ${yn(H.lvs_clear)}</dd>
+    <dt>Setup</dt><dd>${H.setup_violation_corners.length ? pill("failed") + " " + esc(H.setup_violation_corners.join(", ")) : pill("passed")}${H.setup_wns_ns !== null && H.setup_wns_ns !== undefined ? ` WNS ${H.setup_wns_ns.toFixed(2)} ns` : ""}</dd>
+    <dt>Hold</dt><dd>${H.hold_violation_corners.length ? pill("failed") + " " + esc(H.hold_violation_corners.join(", ")) : pill("passed")}${H.hold_wns_ns != null ? ` WNS ${H.hold_wns_ns.toFixed(3)} ns` : ""}</dd>
+    <dt>Cell area</dt><dd>${H.instance_area_um2 != null ? f(H.instance_area_um2, 0) + " µm²" : "?"}</dd><dt>Power</dt><dd>${H.power_w != null ? (H.power_w * 1000).toFixed(2) + " mW" : "?"}</dd>
+    <dt>Antenna</dt><dd>${H.antenna_pins ?? "?"} pin / ${H.antenna_nets ?? "?"} net</dd><dt>Utilization</dt><dd>${H.utilization !== null && H.utilization !== undefined ? (H.utilization * 100).toFixed(1) + "%" : "?"}</dd>
+    <dt>Jobs</dt><dd>${Object.entries(H.jobs || {}).map(([k, v]) => esc(k) + " " + pill(v === "success" ? "passed" : v)).join(" ")}</dd></dl><div class="faint">${esc(H.fidelity)}</div>`;
   $("hist").innerHTML = table([["When", (x) => esc(x.timestamp)], ["Kind", (x) => esc(x.kind)], ["Result", (x) => esc(x.passed !== undefined ? `${x.passed}/${x.total ?? x.seeds}` : x.killed !== undefined ? `${x.killed}/${x.mutants}` : x.ok !== undefined ? String(x.ok) : "")], ["RTL", (x) => esc(x.rtl_hash)]], O.history.slice().reverse().slice(0, 15));
   // physical
   const F = R.flow;
@@ -288,4 +298,17 @@ $("c-create").onclick = async () => {
   catch (e) { $("c-cres").textContent = e.message; }
 };
 
+function statusBar() {
+  const R = O.report, V = R.verification, H = R.hardening, T = R.flow.tools.tools || {};
+  const set = (id, v) => { $(id).textContent = v; };
+  $("sb-led").className = "led ok"; set("sb-conn", "server online");
+  set("sb-top", `${R.design.top} · ${R.design.lanes} lanes`);
+  set("sb-rtl", (V.regression.rtl_hash || R.protocol_tests.rtl_hash || "–").slice(0, 8) + (V.regression.stale ? " (stale)" : ""));
+  const g = V.regression, p = R.protocol_tests;
+  set("sb-ver", `${p.passed ?? "–"}/${p.total ?? "–"} proto · ${g.passed ?? "–"}/${g.seeds ?? "–"} lockstep`);
+  set("sb-ci", H.status ? "not imported" : `run ${H.run_id} · ${H.hardened ? "pass" : "fail"} @ ${H.clock_mhz} MHz`);
+  const have = Object.entries(T).filter(([, v]) => v.installed).map(([k]) => k);
+  set("sb-tools", have.length ? have.join(" ") : "none");
+}
+setInterval(() => { const d = new Date(); $("sb-clock").textContent = d.toLocaleTimeString([], { hour12: false }); }, 1000);
 load().catch((e) => { document.querySelector("main").insertAdjacentHTML("afterbegin", `<div class="pill bad">${esc(e.message)}</div>`); });

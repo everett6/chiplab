@@ -9,6 +9,8 @@ from __future__ import annotations
 from chiplab.schemas.common import TrackedValue, Provenance
 import numpy as np
 
+from chiplab.core.gpu import GPUBackend, get_gpu_backend
+
 
 def thermal_gradient_3d(
     die_power_w: float,
@@ -16,6 +18,7 @@ def thermal_gradient_3d(
     die_thickness_um: float,
     num_die_layers: int,
     thermal_resistance: float,
+    device: str = "auto",
 ) -> dict:
     """Compute 3D thermal gradient across die layers.
 
@@ -35,6 +38,9 @@ def thermal_gradient_3d(
         Number of die layers in the stack.
     thermal_resistance : float
         Thermal resistance in K/W (junction-to-ambient per layer).
+    device : str, default "auto"
+        Device to run solver on. "auto", "cpu", or "cuda".
+        If "auto", uses GPU if available, otherwise CPU.
 
     Returns
     -------
@@ -47,6 +53,8 @@ def thermal_gradient_3d(
         - "ambient_temperature": float, assumed ambient temperature in °C (25°C)
         - "temperature_rise": np.ndarray, temperature rise per layer in °C
     """
+    backend = get_gpu_backend(device=device)
+
     # Ambient temperature
     ambient_temp_c = 25.0
 
@@ -58,7 +66,7 @@ def thermal_gradient_3d(
     temperatures_per_layer = np.zeros(num_die_layers)
 
     # Simple model: each layer adds temperature rise, with coupling
-    # Coupling: inner layers are hotter due to less heat dissipation path
+    # Coupling: edge layers are hotter due to less heat dissipation path
     for i in range(num_die_layers):
         # Edge layers dissipate better than central layers
         # Factor: edge layers have 1.0 coupling, inner layers have higher coupling
@@ -122,7 +130,7 @@ def inter_die_coupling(
     distance_um : float
         Distance between die centers in micrometers.
     interface_material : str
-        Interface material name (e.g., " solder", "thermal_epox", "gap").
+        Interface material name (e.g., "solder", "thermal_epox", "gap").
 
     Returns
     -------
@@ -175,6 +183,7 @@ def hotspot_analysis(
     floorplan: dict,
     ambient_temp: float,
     cooling_solution: str,
+    device: str = "auto",
 ) -> dict:
     """Perform hotspot analysis to identify hot regions on the die.
 
@@ -193,6 +202,9 @@ def hotspot_analysis(
         Ambient temperature in °C.
     cooling_solution : str
         Cooling type: "natural_convection", "forced_convection", "liquid_cooling".
+    device : str, default "auto"
+        Device to run solver on. "auto", "cpu", or "cuda".
+        If "auto", uses GPU if available, otherwise CPU.
 
     Returns
     -------
@@ -204,6 +216,8 @@ def hotspot_analysis(
         - "thermal_image": np.ndarray, visual representation data
         - "cooling_efficiency": float, cooling effectiveness (0 to 1)
     """
+    backend = get_gpu_backend(device=device)
+
     # Extract floorplan parameters
     grid_size = floorplan.get("grid_size", (power_map.shape[0], power_map.shape[1]))
     cell_size_um = floorplan.get("cell_size_um", 10.0)

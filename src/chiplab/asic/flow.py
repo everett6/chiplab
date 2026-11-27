@@ -157,7 +157,34 @@ def flow_status() -> dict[str, Any]:
                       "result": {k: last.get(k) for k in ("cells", "flops", "cell_area_um2", "logic_delay_ns", "status", "mode", "depth", "passed",
                                                          "seeds", "protocols", "timestamp")} if last else None,
                       "status": status})
+    _apply_hardening(steps, report.load("hardening"))
     return {"steps": steps, "tools": ts}
+
+
+def _apply_hardening(steps: list[dict[str, Any]], h: dict[str, Any] | None) -> None:
+    """Steps the TT GitHub Actions run performed get that run's verdict (CI ran them, not this machine)."""
+    if not h or not h.get("ok"):
+        return
+    tag = f" (CI run {h['run_id']}" + (", stale)" if h.get("stale") else ")")
+    setup = h.get("setup_violation_corners") or []
+    verdict = {
+        "floorplan": h.get("routed"), "placement": h.get("routed"), "cts": h.get("routed"),
+        "routing": h.get("routed"), "drc": h.get("drc_clear"),
+        "sta": None if not h.get("routed") else not setup and not h.get("hold_violation_corners"),
+        "gds": h.get("jobs", {}).get("gds") == "success",
+        "power": True if h.get("power_w") is not None else None,
+        "tt_precheck": {"success": True, "failure": False}.get(h.get("jobs", {}).get("precheck", "")),
+    }
+    for s in steps:
+        if s["step"] not in verdict:
+            continue
+        v = verdict[s["step"]]
+        if v is None and s["step"] == "tt_precheck":
+            s["status"] = f"not run{tag}"
+        elif v is not None:
+            note = f": setup fails at {', '.join(setup)}" if s["step"] == "sta" and setup else ""
+            s["status"] = ("passed" if v else "failed") + note + tag
+        s["result"] = {"run_id": h["run_id"], "url": h.get("url"), "timestamp": h.get("timestamp")}
 
 
 # ------------------------------------------------------------------ Tiny Tapeout export

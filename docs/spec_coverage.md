@@ -9,13 +9,13 @@ Status key:
 - **missing**: not built yet.
 - **blocked**: needs a tool or download that isn't installed (they need your OK).
 
-Last updated 2026-11-23.
+Last updated 2026-11-24.
 
 ## A. Jane Street protocol emulator ASIC
 
 | Item | Status | Evidence |
 |---|---|---|
-| IHP 130 nm, Tiny Tapeout flow, ≤ 8×4 tiles, deadline 2027-01-18 | partial | `asic/flow.py` `COMPETITION`. Process and deadline come from the brief and are marked unverified. Tile outlines are the official ones, and the tile fit is estimated (see R8 below). |
+| IHP 130 nm, Tiny Tapeout flow, ≤ 8×4 tiles, deadline 2027-01-18 | done | Hardened with the official TT IHP template (ihp-sg13cmos5l) in 8×4 tiles at 25 MHz, with precheck passing. The deadline comes from the brief and is unverified. |
 | Reprogrammable engine, not fixed peripherals | done | PEM-16 ISA in `asic/isa.py`: 4 lanes, shared 32-word imem, NRZI, bit stuffing and CRC datapath. RTL in `asic/rtl/*.v`. |
 | UART | done | `asic/protocols.py` `uart_tx`/`uart_rx`. Directed tests run on the RTL and the model, with an independent decoder. |
 | SPI | done | `spi_controller(mode)` for modes 0–3, with a loopback test. |
@@ -27,9 +27,9 @@ Last updated 2026-11-23.
 | RTL verification studio | done | Lockstep constrained-random regression, functional and line/toggle coverage, assertions A1–A4, 6/6 mutants killed, lint, and an SPI host smoke test of the TT top. |
 | Formal verification | partial | `asic/eda.py`: SymbiYosys BMC of A1–A4 at depth 20 passes with every input free. A deliberately false property fails, so the check can catch bugs. There is no unbounded (k-induction) proof yet. |
 | Gate-level simulation | done | The Yosys netlist runs under Verilator. 40/40 random seeds and 11/11 protocol tests match the model. Zero delay, no SDF timing. |
-| Synthesis | done | Generic Yosys: 40,340 cells, 2,014 flops. Mapped to IHP sg13g2 cells (slow corner): 337,861 µm² of cells, 30,319 cells, 7.97 ns longest logic path (126 MHz upper bound). |
-| Tile fit (R8) | partial | 28% cell density in the official 8×4 outline (1724.16 × 710.64 µm, from tt-support-tools), so it is likely to fit. 5×4 and 6×4 are also likely. Placement and routing are not run, so this is an estimate. |
-| Physical design studio | partial | Flow steps, tool status and the TT project export (`projects/jane_street_pem`) are in place. Hardening, GDS, timing, area and power are blocked (they need the TT IHP flow or the GitHub Actions template). |
+| Synthesis | done | Generic Yosys: 40,340 cells, 2,014 flops. Mapped to IHP sg13g2 cells (slow corner): 337,861 µm² of cells, 30,319 cells, 7.97 ns longest logic path (126 MHz upper bound, logic only). Post-route, the real limit is about 39 MHz. |
+| Tile fit (R8) | done | Placed and routed in the 8×4 tile by the official TT IHP flow (LibreLane on GitHub Actions, run 45375954691, everett6/ttihp-chiplab-pem). 36,786 standard cells, 477,797 µm² of cells, 39.5% utilization, 0 routing DRC errors, 0 antenna violations, Magic DRC and LVS clear. Import a run with `asic/hardening.py` or the "Import latest gds run" button. |
+| Physical design studio | done | At 25 MHz (CLOCK_PERIOD 40) the gds, precheck and gate-level test jobs pass (run 45375954691). Worst setup slack is 14.46 ns over all corners, about a 39 MHz limit; hold slack is 0.10 ns; power is 11.3 mW with OpenROAD's default activity. The first run at 50 MHz failed setup at the slow corner. The GitHub Pages viewer job fails because Pages is not enabled on the repo. |
 | Protocol lab | done | `/asic` Protocol Lab: editor, assembler, reference-model simulation with a pin waveform, protocol tests on the model or RTL. |
 | Competition evaluation | done | Metrics (physical metrics show "not run", never invented), requirements R1–R11, checklist, limitations, technical report. |
 | AI assistance with versioning and no fabricated results | done | MCP tools `asic_*` (16 tools in this group). Results are stored with an RTL hash and marked stale when the RTL changes (`asic/report.py`). |
@@ -71,7 +71,7 @@ Last updated 2026-11-23.
 | B. Custom ASIC studio, hierarchical | done | Component SDK plus Foundry (see B above). |
 | C. Compiler outputs: org, circuit, area, timing, power, RTL, tests, layout | partial | All are produced. The layout is a schematic floorplan, not GDS. |
 | C. PDK validation | partial | Rule checks against the PDK ladder. DRC and LVS are reported as "not run" (they need a real layout). |
-| D. 10 simulation levels with fidelity labels | partial | Levels 1–5, 9 and 10 run here. Levels 6–8 (STA, place and route, DRC/LVS) need OpenROAD, KLayout and the IHP PDK. |
+| D. 10 simulation levels with fidelity labels | partial | Levels 1–5, 9 and 10 run here. For the PEM ASIC, STA, place and route, DRC and LVS (levels 6–8) run in the TT GitHub Actions flow and are imported. They are not run locally for the memory compiler. |
 | E. Architecture comparison | done | `memory_compare` and the Compare button. |
 | F. Visual views tied to the data | done | All SVGs are generated from the compile result. |
 | G. Extensibility | done | User components are registered as JSON with sandboxed models. |
@@ -80,5 +80,5 @@ Last updated 2026-11-23.
 
 1. Done 2026-11-23: OSS CAD Suite is installed in `~/.local/opt/oss-cad-suite`.
 2. Done 2026-11-23: the IHP sg13g2 liberty (typ and slow corners) is in `~/.local/opt/ihp-sg13g2`, pinned to IHP-Open-PDK commit e73adb40.
-3. Run the TT IHP hardening flow. Either install it locally, or push `projects/jane_street_pem` to a repo made from the official Tiny Tapeout IHP template so GitHub Actions does it. This gives GDS, timing, area and precheck.
+3. Done 2026-11-24: TT IHP hardening on GitHub Actions passes gds, precheck and the gate-level test at 25 MHz (run 45375954691).
 4. Write the USB RX and Ethernet protocol programs and their tests.

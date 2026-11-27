@@ -31,6 +31,9 @@ def routes(lab: Callable[[Callable[[dict[str, Any]], Any]], Any]) -> list[Route]
     async def js(_: Request) -> FileResponse:
         return FileResponse(STATIC / "asic.js", media_type="text/javascript")
 
+    async def eda_css(_: Request) -> FileResponse:      # shared workstation theme for every page
+        return FileResponse(STATIC / "eda.css", media_type="text/css")
+
     async def overview(_: Request) -> JSONResponse:
         import asyncio
         arch, rep, lv = await asyncio.gather(asyncio.to_thread(asic_api.asic_architecture),
@@ -48,7 +51,7 @@ def routes(lab: Callable[[Callable[[dict[str, Any]], Any]], Any]) -> list[Route]
         return Route(path, lab(_safe(fn)), methods=["POST"])
 
     return [
-        Route("/asic", page), Route("/asic.js", js),
+        Route("/asic", page), Route("/asic.js", js), Route("/eda.css", eda_css),
         Route("/api/asic/overview", overview), Route("/api/asic/technical_report", tech_report),
         Route("/api/components", components),
         post("/api/asic/assemble", lambda d: asic_api.asic_assemble(str(d.get("source", "")))),

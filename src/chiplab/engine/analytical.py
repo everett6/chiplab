@@ -4,6 +4,7 @@ import time
 import uuid
 from typing import Any
 
+from chiplab.credibility import is_material_chiplet, require_credible_design
 from chiplab.schemas.design import DesignSpec, ChipletSpec
 from chiplab.schemas.simulation import SimulationConfig
 from chiplab.schemas.workload import WorkloadSpec
@@ -43,6 +44,11 @@ def _estimate_compute_chiplet(
 ) -> tuple[dict[str, float], list[AssumptionRecord], list[str]]:
     """Wrap chiplab.models.estimate_compute_chiplet with error handling for non-compute chiplets."""
     from chiplab.models.compute import estimate_compute_chiplet
+    if is_material_chiplet(chiplet):
+        # No compute model exists for a material device: only its validated drive power.
+        return {"peak_tops": 0.0, "efficiency_factor": 1.0, "effective_tops": 0.0,
+                "sram_mb": 0.0, "area_mm2": float(chiplet.area_mm2 or 0.0),
+                "power_watts": float(chiplet.tdp_watts or 0.0), "clock_ghz": 0.0}, [], []
     if chiplet.compute is None and (
         chiplet.type in ("memory", "io") or chiplet.memory is not None
     ):
@@ -147,6 +153,7 @@ def run_analytical_simulation(
     run_id = f"analytical_{design_id}_{int(time.time())}_{uuid.uuid4().hex[:6]}"
     from chiplab.backends.ecore import apply_ecore_to_design
     from chiplab.schemas.design import plain_design
+    require_credible_design(design)
     # TrackedValues become plain numbers for the models; their provenance is kept here.
     design, tracked = plain_design(design)
     # PIM chiplets with a compute.ecore block take their numbers from Echo Lab's eCore.
@@ -154,6 +161,10 @@ def run_analytical_simulation(
     assumptions: list[AssumptionRecord] = [AssumptionRecord(**t) for t in tracked]
     assumptions.extend(ecore_records)
     warnings: list[str] = list(ecore_warnings)
+    warnings.extend(
+        f"chiplet '{c.id or c.type}' is a material device: it adds area and drive power only; "
+        "its performance is not modelled"
+        for c in design.chiplets if is_material_chiplet(c))
 
     total_chiplets = sum(c.count for c in design.chiplets)
 

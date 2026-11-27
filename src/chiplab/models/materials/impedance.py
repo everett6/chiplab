@@ -1,4 +1,10 @@
-"""Electrical impedance models."""
+"""Legacy electrical impedance estimates.
+
+HEURISTIC: ``impedance_matrix`` and ``frequency_response`` use assumed conductivity,
+cross-section and relaxation values and an assumed organization factor; they are not
+calibrated and the matrix is not a circuit-theory port matrix. For ferrofluid impedance
+from particle physics use ``ferro_device.FerrofluidDevice.impedance_matrix``.
+"""
 
 from __future__ import annotations
 
@@ -42,8 +48,12 @@ def impedance_matrix(
     Z = np.zeros((len(freqs), M, M), dtype=complex)
 
     # Get conductivity from state (simplified interface)
+    # Check for organization-dependent effects from FerrofluidState
+    org = getattr(state, "particle_organization", 0.0)
+    if hasattr(org, "value"):
+        org = org.value
     # In a real implementation, this would come from state.electrical_impedance or similar
-    sigma = 0.1  # baseline conductivity S/m (assumed)
+    sigma = 0.1 / (1.0 + 0.5 * org)  # organization-dependent conductivity (assumed)
     epsilon_r = 80  # relative permittivity (water-like)
     epsilon_0 = 8.854e-12  # vacuum permittivity F/m
 
@@ -53,12 +63,12 @@ def impedance_matrix(
     for k, f in enumerate(freqs):
         omega = 2.0 * np.pi * f
 
-        # Complex permittivity: ε*(ω) = ε_inf + (ε_s - ε_inf) / (1 + jωτ)
-        # simplified: ε*(ω) = ε_0 * ε_r / (1 + jωτ)
+        # Complex permittivity: eps*(omega) = eps_inf + (eps_s - eps_inf) / (1 + j*omega*tau)
+        # simplified: eps*(omega) = eps_0 * eps_r / (1 + j*omega*tau)
         complex_permittivity = epsilon_0 * epsilon_r / (1.0 + 1j * omega * tau)
 
-        # Complex conductivity: σ*(ω) = jωε*(ω)
-        complex_conductivity = 1j * omega * complex_permittivity
+        # Complex conductivity: sig*(omega) = sigma_dc + j*omega*eps*(omega)
+        complex_conductivity = sigma + 1j * omega * complex_permittivity
 
         # For each electrode pair, compute impedance
         for i in range(M):
@@ -72,12 +82,12 @@ def impedance_matrix(
                     r_mag = np.linalg.norm(r_ij) + 1e-12
 
                     # Effective conductance through ferrofluid
-                    # G = σ * A / L, simplified as conductance proportional to σ
+                    # G = sigma * A / L, simplified as conductance proportional to sigma
                     # and inversely proportional to distance
                     A = 1e-4  # effective cross-section m² (assumed)
                     L = r_mag  # distance
 
-                    # Impedance: Z = 1 / (σ* + jωε*) * L / A
+                    # Impedance: Z = 1 / sig*(omega) * L / A
                     # Using complex conductivity
                     if abs(complex_conductivity) > 1e-15:
                         Z_k_ij = L / (A * complex_conductivity)

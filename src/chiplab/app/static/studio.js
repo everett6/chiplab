@@ -5,11 +5,12 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { buildDieLayout, STACK } from "/layout3d.js";
+import { renderChipletFloorplanSvg, renderRooflineSvg, renderTopologySvg, renderStackupCrossSectionSvg } from "./eda_diagrams.js";
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const f = (v, d = 1) => (v === null || v === undefined || Number.isNaN(v) ? "–" : Number(v).toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: 0 }));
-const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+const dark = true;                                  // the workstation theme (eda.css) is always dark
 
 const MODES = [
   ["assembly", "3D Assembly", "package, board, cooler"],
@@ -37,8 +38,10 @@ const DEFAULT_LAYERS = {
 
 const S = {
   data: null, mode: "assembly", layers: { ...DEFAULT_LAYERS.assembly }, explode: 0, vscale: 6,
-  wire: false, selected: null, move: false, playing: false, frame: -1, designs: [],
+  lyr: {}, wire: false, selected: null, move: false, playing: false, frame: -1, designs: [],
   lastEventId: 0, busy: false,
+  edaOpen: false, edaTab: "chiplet", camAnim: null,
+  memPresets: [], memDraft: null, customMemResult: null, memComparisons: [],
 };
 
 // ---------------------------------------------------------------- three.js setup
@@ -53,15 +56,40 @@ try {
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
 renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 vp.prepend(renderer.domElement);
 const scene3 = new THREE.Scene();
 scene3.background = new THREE.Color(getComputedStyle(document.documentElement).getPropertyValue("--viewport").trim() || "#dfe4ea");
+
+// Procedural CAD studio environment map for realistic metallic reflections (gold, copper, solder, silicon)
+(() => {
+  const ec = document.createElement("canvas");
+  ec.width = 256; ec.height = 128;
+  const g = ec.getContext("2d");
+  const grad = g.createLinearGradient(0, 0, 0, 128);
+  grad.addColorStop(0.0, "#eef4ff");
+  grad.addColorStop(0.45, "#9bb0cc");
+  grad.addColorStop(0.55, "#232a36");
+  grad.addColorStop(1.0, "#10141c");
+  g.fillStyle = grad; g.fillRect(0, 0, 256, 128);
+  g.fillStyle = "rgba(255,255,255,0.85)";
+  g.fillRect(28, 14, 60, 22);
+  g.fillRect(156, 18, 72, 18);
+  const envTex = new THREE.CanvasTexture(ec);
+  envTex.mapping = THREE.EquirectangularReflectionMapping;
+  envTex.colorSpace = THREE.SRGBColorSpace;
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene3.environment = pmrem.fromEquirectangular(envTex).texture;
+  envTex.dispose(); pmrem.dispose();
+})();
 const camera = new THREE.PerspectiveCamera(40, 1, 0.5, 5000);
 camera.position.set(140, 160, 200);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.screenSpacePanning = true;
+controls.addEventListener("start", () => { S.camAnim = null; });
 scene3.add(new THREE.HemisphereLight(0xffffff, dark ? 0x202530 : 0x8090a0, dark ? 1.1 : 1.4));
 const sun = new THREE.DirectionalLight(0xffffff, 2.2);
 sun.position.set(120, 260, 140);
@@ -132,6 +160,241 @@ function box(w, h, d, mat, pick) {
   if (pick) { m.userData.pick = pick; pickables.push(m); }
   m.userData.baseColor = mat.color.clone();
   return m;
+}
+
+function buildPcbTextures(pcb, pkg) {
+  const W = 1024, H = Math.max(384, Math.round(1024 * pcb.d / Math.max(pcb.w, 1)));
+  const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+  const g = cv.getContext("2d");
+  const bcv = document.createElement("canvas"); bcv.width = W; bcv.height = H;
+  const bg = bcv.getContext("2d");
+
+  const toX = (x) => (x + pcb.w / 2) / pcb.w * W;
+  const toY = (y) => (-y + pcb.d / 2) / pcb.d * H;
+
+  // 1. Matte LPI soldermask base + subtle FR-4 weave
+  g.fillStyle = "#084232"; g.fillRect(0, 0, W, H);
+  bg.fillStyle = "#505050"; bg.fillRect(0, 0, W, H);
+  g.strokeStyle = "rgba(255,255,255,0.028)"; g.lineWidth = 1;
+  for (let x = 0; x < W; x += 8) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke(); }
+  for (let y = 0; y < H; y += 8) { g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
+
+  // 2. CUDA PDN current-density / copper-plane thermal tint (if computed by backend)
+  const pdn = pcb.cad?.cuda_pdn_field;
+  if (pdn && Array.isArray(pdn.grid_u8) && pdn.nx && pdn.ny) {
+    const cw = W / pdn.nx, ch = H / pdn.ny;
+    for (let j = 0; j < pdn.ny; j++) {
+      for (let i = 0; i < pdn.nx; i++) {
+        const v = pdn.grid_u8[j * pdn.nx + i] / 255;
+        if (v > 0.08) {
+          g.fillStyle = `rgba(38, 165, 118, ${(v * 0.22).toFixed(3)})`;
+          g.fillRect(i * cw, (pdn.ny - 1 - j) * ch, cw + 0.5, ch + 0.5);
+        }
+      }
+    }
+  }
+
+  // 3. Exposed copper ground pour hatches & soldermask-covered trace reliefs
+  g.strokeStyle = "#17684f"; g.lineWidth = 1.2;
+  for (let x = 18; x < W - 18; x += 14) {
+    g.beginPath(); g.moveTo(x, 18); g.lineTo(x + 12, H - 18); g.stroke();
+  }
+  for (const tr of pcb.traces || []) {
+    g.strokeStyle = tr.kind === "power" ? "#1d7a5b" : "#146148";
+    bg.strokeStyle = "#b8b8b8";
+    const lw = Math.max(1.5, tr.width / pcb.w * W);
+    g.lineWidth = lw; bg.lineWidth = lw;
+    g.lineJoin = bg.lineJoin = "round";
+    g.beginPath(); bg.beginPath();
+    tr.points.forEach(([px0, py0], idx) => {
+      const sx = toX(px0), sy = toY(py0);
+      if (idx === 0) { g.moveTo(sx, sy); bg.moveTo(sx, sy); }
+      else { g.lineTo(sx, sy); bg.lineTo(sx, sy); }
+    });
+    g.stroke(); bg.stroke();
+  }
+
+  // 4. White silkscreen: board perimeter, component courtyards, reference designators
+  g.strokeStyle = "rgba(235,242,248,0.72)"; g.lineWidth = 1.6;
+  g.strokeRect(10, 10, W - 20, H - 20);
+  // Package U1 courtyard & Pin-1 triangle
+  const ux0 = toX(pcb.package_x - pkg.substrate.w / 2 - 2), ux1 = toX(pcb.package_x + pkg.substrate.w / 2 + 2);
+  const uy0 = toY(pkg.substrate.d / 2 + 2), uy1 = toY(-pkg.substrate.d / 2 - 2);
+  g.strokeRect(ux0, Math.min(uy0, uy1), ux1 - ux0, Math.abs(uy1 - uy0));
+  g.fillStyle = "rgba(235,242,248,0.85)";
+  g.beginPath();
+  g.moveTo(ux0 - 4, Math.min(uy0, uy1));
+  g.lineTo(ux0 + 6, Math.min(uy0, uy1));
+  g.lineTo(ux0 - 4, Math.min(uy0, uy1) + 10);
+  g.closePath(); g.fill();
+
+  for (const p of pcb.parts || []) {
+    if (p.kind === "edge_connector") continue;
+    const x0 = toX(p.x - p.w / 2 - 0.8), x1 = toX(p.x + p.w / 2 + 0.8);
+    const y0 = toY(p.y + p.d / 2 + 0.8), y1 = toY(p.y - p.d / 2 - 0.8);
+    g.strokeStyle = "rgba(235,242,248,0.55)"; g.lineWidth = 1;
+    g.strokeRect(x0, Math.min(y0, y1), x1 - x0, Math.abs(y1 - y0));
+  }
+
+  g.fillStyle = "rgba(240,245,250,0.88)";
+  g.font = "bold 12px monospace";
+  for (const s of pcb.cad?.silkscreen || []) {
+    g.fillText(s.text, toX(s.x), toY(s.y));
+  }
+  if (pdn) {
+    g.fillStyle = "rgba(180,235,215,0.78)";
+    g.font = "11px monospace";
+    g.fillText(`CUDA PDN (${pdn.backend}) | Peak J=${pdn.peak_current_density} A/mm2 | ${pcb.cad?.layers || 8}L FR-4`, 18, H - 16);
+  }
+
+  const map = new THREE.CanvasTexture(cv);
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.anisotropy = 8;
+  const bumpMap = new THREE.CanvasTexture(bcv);
+  bumpMap.anisotropy = 4;
+  return { map, bumpMap };
+}
+
+function buildPcbAssembly(pcb, pkg, grp) {
+  const { map, bumpMap } = buildPcbTextures(pcb, pkg);
+  const edgeMat = new THREE.MeshStandardMaterial({ color: 0x1b2b1e, roughness: 0.72, metalness: 0.08 });
+  const topMat = new THREE.MeshStandardMaterial({ map, bumpMap, bumpScale: 0.06, roughness: 0.52, metalness: 0.12 });
+  const board = new THREE.Mesh(
+    new THREE.BoxGeometry(pcb.w, pcb.t, pcb.d),
+    [edgeMat, edgeMat, topMat, edgeMat, edgeMat, edgeMat],
+  );
+  board.castShadow = board.receiveShadow = true;
+  board.userData.pick = { type: "pcb", id: "PCB" };
+  pickables.push(board);
+  board.position.set(0, pcb.t / 2, 0);
+  grp.add(board);
+
+  // Internal copper plane edge bands (FR-4 multi-layer stackup visualization)
+  const cuEdgeMat = new THREE.MeshStandardMaterial({ color: 0xc98242, metalness: 0.85, roughness: 0.3 });
+  for (const frac of [0.25, 0.5, 0.75]) {
+    const band = new THREE.Mesh(new THREE.BoxGeometry(pcb.w + 0.08, 0.05, pcb.d + 0.08), cuEdgeMat);
+    band.position.set(0, pcb.t * frac, 0);
+    grp.add(band);
+  }
+
+  // Copper traces with slight physical height
+  const cuMat = MAT.copper();
+  for (const tr of pcb.traces || []) {
+    for (let i = 1; i < tr.points.length; i++) {
+      const [ax, ay] = tr.points[i - 1], [bx, by] = tr.points[i];
+      const len = Math.hypot(bx - ax, by - ay);
+      if (len < 0.05) continue;
+      const m = box(len, 0.07, tr.width, cuMat);
+      m.position.set((ax + bx) / 2, pcb.t + 0.035, -(ay + by) / 2);
+      m.rotation.y = Math.atan2(by - ay, bx - ax);
+      grp.add(m);
+    }
+  }
+
+  // Plated mounting holes (ENIG gold annular ring + dark drill bore)
+  const goldMat = MAT.gold();
+  const boreMat = new THREE.MeshStandardMaterial({ color: 0x0b0d12, roughness: 0.9 });
+  for (const mh of pcb.cad?.mounting_holes || []) {
+    const ring = new THREE.Mesh(new THREE.CylinderGeometry(mh.pad_d / 2, mh.pad_d / 2, pcb.t + 0.08, 24), goldMat);
+    ring.position.set(mh.x, pcb.t / 2, -mh.y);
+    const bore = new THREE.Mesh(new THREE.CylinderGeometry(mh.drill_d / 2, mh.drill_d / 2, pcb.t + 0.14, 20), boreMat);
+    bore.position.set(mh.x, pcb.t / 2, -mh.y);
+    grp.add(ring, bore);
+  }
+
+  // ENIG Fiducials
+  for (const fid of pcb.cad?.fiducials || []) {
+    const disc = new THREE.Mesh(new THREE.CylinderGeometry(fid.d / 2, fid.d / 2, 0.06, 16), goldMat);
+    disc.position.set(fid.x, pcb.t + 0.03, -fid.y);
+    grp.add(disc);
+  }
+
+  // Instanced Via Stitching Fence
+  const vias = pcb.cad?.vias || [];
+  if (vias.length) {
+    const viaMesh = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.5, 0.5, pcb.t + 0.1, 8), goldMat, vias.length);
+    const mtx = new THREE.Matrix4();
+    vias.forEach((v, i) => {
+      mtx.makeScale(v.d, 1, v.d).setPosition(v.x, pcb.t / 2, -v.y);
+      viaMesh.setMatrixAt(i, mtx);
+    });
+    viaMesh.instanceMatrix.needsUpdate = true;
+    grp.add(viaMesh);
+  }
+
+  // Instanced BGA Solder Balls under the package substrate
+  const balls = pcb.cad?.bga_balls || [];
+  if (balls.length) {
+    const solderMat = new THREE.MeshStandardMaterial({ color: 0xd8dde5, metalness: 0.94, roughness: 0.18 });
+    const ballMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(0.24, 8, 6), solderMat, balls.length);
+    const mtx = new THREE.Matrix4();
+    balls.forEach((b, i) => {
+      mtx.makeTranslation(b.x, pcb.t + 0.14, -b.y);
+      ballMesh.setMatrixAt(i, mtx);
+    });
+    ballMesh.instanceMatrix.needsUpdate = true;
+    grp.add(ballMesh);
+  }
+
+  // Individual PCIe Gold Fingers
+  const fingers = pcb.cad?.gold_fingers || [];
+  if (fingers.length) {
+    const fMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 0.12, 1), goldMat, fingers.length);
+    const mtx = new THREE.Matrix4();
+    fingers.forEach((fg, i) => {
+      mtx.makeScale(fg.w, 1, fg.d).setPosition(fg.x, pcb.t + 0.05, -fg.y);
+      fMesh.setMatrixAt(i, mtx);
+    });
+    fMesh.instanceMatrix.needsUpdate = true;
+    grp.add(fMesh);
+  }
+
+  // Detailed SMD & Power Components
+  const ceramicMat = new THREE.MeshStandardMaterial({ color: 0x9c744f, roughness: 0.48, metalness: 0.08 });
+  const silverCapMat = new THREE.MeshStandardMaterial({ color: 0xd4dae2, metalness: 0.9, roughness: 0.22 });
+  const ferriteMat = new THREE.MeshStandardMaterial({ color: 0x3f4550, metalness: 0.35, roughness: 0.55 });
+  const drmosMat = new THREE.MeshStandardMaterial({ color: 0x181b22, roughness: 0.45, metalness: 0.1 });
+
+  for (const p of pcb.parts || []) {
+    const pick = { type: "pcb_part", id: p.id, part: p };
+    if (p.kind === "capacitor") {
+      // SMD MLCC / Polymer cap with ceramic body + silver terminations
+      const body = box(p.w * 0.7, p.h * 0.85, p.d * 0.85, ceramicMat, pick);
+      body.position.set(p.x, pcb.t + p.h * 0.425, -p.y);
+      const capL = box(p.w * 0.22, p.h * 0.9, p.d * 0.9, silverCapMat);
+      capL.position.set(p.x - p.w * 0.36, pcb.t + p.h * 0.45, -p.y);
+      const capR = box(p.w * 0.22, p.h * 0.9, p.d * 0.9, silverCapMat);
+      capR.position.set(p.x + p.w * 0.36, pcb.t + p.h * 0.45, -p.y);
+      grp.add(body, capL, capR);
+    } else if (p.kind === "inductor") {
+      const core = box(p.w, p.h * 0.88, p.d, ferriteMat, pick);
+      core.position.set(p.x, pcb.t + p.h * 0.44, -p.y);
+      const top = box(p.w * 0.82, p.h * 0.14, p.d * 0.82, silverCapMat);
+      top.position.set(p.x, pcb.t + p.h * 0.92, -p.y);
+      grp.add(core, top);
+    } else if (p.kind === "power_stage") {
+      const pkgBody = box(p.w, p.h, p.d, drmosMat, pick);
+      pkgBody.position.set(p.x, pcb.t + p.h / 2, -p.y);
+      const pad = box(p.w + 0.8, 0.12, p.d + 0.6, silverCapMat);
+      pad.position.set(p.x, pcb.t + 0.06, -p.y);
+      grp.add(pkgBody, pad);
+    } else if (p.kind === "power_connector") {
+      const shroud = box(p.w, p.h, p.d, drmosMat, pick);
+      shroud.position.set(p.x, pcb.t + p.h / 2, -p.y);
+      for (let px1 = -1; px1 <= 1; px1++) {
+        for (let pz1 = -1; pz1 <= 1; pz1++) {
+          const pin = box(1.1, p.h * 0.7, 1.1, goldMat);
+          pin.position.set(p.x + px1 * 3.2, pcb.t + p.h * 0.55, -p.y + pz1 * 2.6);
+          grp.add(pin);
+        }
+      }
+      grp.add(shroud);
+    } else if (p.kind !== "edge_connector") {
+      const m = box(p.w, p.h, p.d, MAT.part(), pick);
+      m.position.set(p.x, pcb.t + p.h / 2, -p.y);
+      grp.add(m);
+    }
+  }
 }
 
 // ---------------------------------------------------------------- floorplan textures
@@ -249,32 +512,8 @@ function build() {
     groups[k] = new THREE.Group(); world.add(groups[k]);
   }
   H.groups = groups;
-  // PCB
-  const board = box(pcb.w, pcb.t, pcb.d, MAT.pcb(), { type: "pcb", id: "PCB" });
-  board.position.set(0, pcb.t / 2, 0);
-  groups.pcb.add(board);
-  for (const tr of pcb.traces) {
-    for (let i = 1; i < tr.points.length; i++) {
-      const [ax, ay] = tr.points[i - 1], [bx, by] = tr.points[i];
-      const len = Math.hypot(bx - ax, by - ay);
-      const m = box(len, 0.08, tr.width, MAT.copper());
-      m.position.set((ax + bx) / 2, pcb.t + 0.04, -(ay + by) / 2);
-      m.rotation.y = Math.atan2(by - ay, bx - ax);
-      groups.pcb.add(m);
-    }
-  }
-  for (const p of pcb.parts) {
-    let m;
-    const pick = { type: "pcb_part", id: p.id, part: p };
-    if (p.kind === "capacitor") {
-      m = new THREE.Mesh(new THREE.CylinderGeometry(p.w / 2, p.w / 2, p.h, 16), MAT.cap());
-      m.userData.pick = pick; pickables.push(m);
-    } else {
-      m = box(p.w, p.h, p.d, p.kind === "inductor" ? MAT.inductor() : p.kind === "edge_connector" ? MAT.gold() : MAT.part(), pick);
-    }
-    m.position.set(p.x, pcb.t + p.h / 2, -p.y);
-    groups.pcb.add(m);
-  }
+  // PCB (EDA CAD multi-layer board, soldermask/silkscreen PBR, vias, PTH, BGA, gold fingers)
+  buildPcbAssembly(pcb, pkg, groups.pcb);
   // Package substrate (BGA)
   const subT = pkg.substrate.t;
   const sub = box(pkg.substrate.w, subT, pkg.substrate.d, MAT.substrate(), { type: "substrate", id: "Package substrate" });
@@ -336,6 +575,7 @@ function build() {
       const lay = buildDieLayout(c, D.components, V);
       g.add(lay);
       H.comp[c.id].lay = lay;
+      for (const [k, objs] of Object.entries(lay.userData.layers)) for (const o of objs) o.visible = S.lyr[k] !== false;
     }
     // microbumps under the die (sampled)
     const bx = 14, by = 10;
@@ -527,6 +767,7 @@ function layout() {
 
 // ---------------------------------------------------------------- modes
 function applyMode() {
+  setTimeout(statusBar, 0);
   const D = S.data, mode = S.mode;
   for (const [k, on] of Object.entries(S.layers)) {
     if (k === "cooling") { H.groups.cooling.visible = on; }
@@ -596,11 +837,28 @@ function applyMode() {
     h.face.material.visible = !on;   // stays pickable underneath
   }
   applyWire();
+  layerPalette(); applyLayoutLayers();
   legend();
   hud();
   $("timeline").style.display = mode === "thermal" ? "flex" : "none";
   if (mode === "thermal") drawTimeline();
 }
+
+// Layout-layer palette (die mode): per-mask-layer visibility, like a layer window in a layout editor.
+function applyLayoutLayers() {
+  for (const h of Object.values(H.comp)) {
+    const L = h.lay?.userData.layers;
+    if (L) for (const [k, objs] of Object.entries(L)) for (const o of objs) o.visible = S.lyr[k] !== false;
+  }
+}
+function layerPalette() {
+  const show = S.mode === "die" && !!S.layers.cells;
+  $("lyrbox").hidden = !show;
+  if (!show) return;
+  $("lyrpal").innerHTML = STACK.slice().reverse().map((l) =>
+    `<label class="ck"><input type="checkbox" data-k="${l.key}"${S.lyr[l.key] === false ? "" : " checked"}><i style="width:14px;height:9px;border-radius:1px;border:1px solid rgba(255,255,255,.28);background:${l.color}"></i> ${esc(l.name)}</label>`).join("");
+}
+$("lyrpal").onchange = (e) => { S.lyr[e.target.dataset.k] = e.target.checked; applyLayoutLayers(); };
 
 function applyWire() {
   world.traverse((o) => {
@@ -632,8 +890,8 @@ function legend() {
       <div class="note">Package ${f(D.power.package_w)} W (dies ${f(D.power.dies_w)} W + PHY/links ${f(D.power.interconnect_w)} W) · VRM loss ${f(D.power.vrm_loss_w)} W · board input ${f(D.power.board_input_w)} W. Red glow: large power share but &lt;30% busy in the simulated workload.</div>`;
   } else if (m === "die" && S.layers.cells) {
     const h = S.selected && H.comp[S.selected.id], st = h?.lay?.userData.stats;
-    html = `<b>Die layout · layer stack</b>${STACK.slice().reverse().map((l) => `<div style="display:flex;gap:6px;align-items:center;margin-top:3px"><i style="width:12px;height:9px;border-radius:2px;background:${l.color};display:inline-block"></i>${esc(l.name)}</div>`).join("")}
-      <div class="note">Drawn from ChipLab's floorplan for each die (clusters, SRAM share, PHY edges, channels × banks, CIM share). Representative, not a GDS: each cell row stands for many.${st ? ` ${f(st.cell_rows, 0)} rows · ${f(st.signal_wires, 0)} wires · ${f(st.arrays, 0)} arrays shown.` : ""} Signal-wire density follows simulated cluster activity.</div>`;
+    html = `<b>Die layout · layer stack</b><div class="lpal">${STACK.slice().reverse().map((l) => `<i style="background:${l.color}"></i><span>${esc(l.name)}</span><span></span>`).join("")}</div>
+      <div class="note">Drawn from ChipLab's floorplan for each die (clusters, SRAM share, PHY edges, channels × banks, CIM share). Representative, not a GDS: each cell row stands for many.${st ? ` ${f(st.cell_rows, 0)} rows · ${f(st.signal_wires, 0)} wires · ${f(st.vias, 0)} vias · ${f(st.clock_buffers, 0)} clock buffers · ${f(st.tap_cells, 0)} taps · ${f(st.arrays, 0)} arrays shown.` : ""} Signal-wire density follows simulated cluster activity.</div>`;
   } else if (m === "memory" || m === "interconnect" || m === "die") {
     html = `<b>${m === "interconnect" ? "Link utilization" : "Simulated activity"}</b><div class="bar" style="background:${gradientCss(utilCss)}"></div><div class="ends"><span>idle</span><span>${m === "interconnect" ? "busiest link" : "100% busy"}</span></div>
       <div class="note">${D.simulation ? `Discrete-event run of <b>${esc(S.data.workload)}</b>: bottleneck <b>${esc(D.simulation.bottleneck.bound_type)}</b>, ${f(D.simulation.events, 0)} events.` : "No simulation."}</div>`;
@@ -649,8 +907,15 @@ function legend() {
 function hud() {
   const D = S.data, sim = D.simulation;
   const cap = D.components.reduce((a, c) => a + c.capacity_gb, 0), bw = D.components.reduce((a, c) => a + c.bandwidth_gbps, 0);
+  const selChip = S.selected && D.components.find((c) => c.id === S.selected.id);
   $("hud").innerHTML = `<b>${esc(D.design.name)}</b> v${esc(D.design.version)} · ${esc(D.design.package_type)} · ${esc(D.package.interposer.kind.replace(/_/g, " "))}<br>
-    ${D.components.length} chiplets · ${f(cap)} GB · ${f(bw / 1000, 2)} TB/s · ${f(D.power.package_w)} W · peak ${f(D.thermal.hotspot.temp_c)} °C${sim ? ` · ${f(sim.throughput_tokens_per_sec)} tok/s (${esc(D.workload)})` : ""}`;
+    ${D.components.length} chiplets · ${f(cap)} GB · ${f(bw / 1000, 2)} TB/s · ${f(D.power.package_w)} W · peak ${f(D.thermal.hotspot.temp_c)} °C${sim ? ` · ${f(sim.throughput_tokens_per_sec)} tok/s (${esc(D.workload)})` : ""}
+    <div class="hud-actions">
+      <button class="btn" id="btn-eda">${S.edaOpen ? "Hide EDA Diagrams" : "EDA Diagrams"}</button>
+      ${selChip ? `<button class="btn primary" id="btn-zoom-chiplet">Zoom Chiplet Up Close</button>` : ""}
+    </div>`;
+  $("btn-eda").onclick = () => toggleEdaDrawer();
+  if (selChip) $("btn-zoom-chiplet").onclick = () => focusChipletUpClose(selChip.id);
 }
 
 // ---------------------------------------------------------------- thermal transient
@@ -751,7 +1016,11 @@ renderer.domElement.addEventListener("pointerup", async (ev) => {
   const h = pickAt(ev);
   select(h ? h.object.userData.pick : null);
 });
-renderer.domElement.addEventListener("dblclick", () => { if (S.selected) focusOn(S.selected.id); });
+renderer.domElement.addEventListener("dblclick", () => {
+  if (!S.selected) return;
+  if (H.comp[S.selected.id]) focusChipletUpClose(S.selected.id);
+  else focusOn(S.selected.id);
+});
 
 function tipText(pk) {
   const c = S.data.components.find((x) => x.id === pk.id);
@@ -766,8 +1035,11 @@ function tipText(pk) {
 
 function select(pk) {
   S.selected = pk;
+  setTimeout(statusBar, 0);
   inspector();
   memoryStudio();
+  if (S.data) hud();
+  if (S.edaOpen) renderEdaDrawer();
   if (S.mode === "die" || S.mode === "memory") { applyMode(); layout(); }
 }
 
@@ -782,7 +1054,8 @@ function inspector() {
   const c = D.components.find((x) => x.id === pk.id);
   if (c) {
     const it = c.internal, th = D.thermal.components.find((t) => t.id === c.id);
-    let html = `<h2>${esc(c.id)} <span class="badge">${esc(c.kind.replace(/_/g, " "))}</span></h2>`;
+    let html = `<h2>${esc(c.id)} <span class="badge">${esc(c.kind.replace(/_/g, " "))}</span></h2>
+      <div class="row" style="margin:0 0 8px"><button class="btn primary" id="ins-zoom-chiplet">Zoom Chiplet Up Close</button></div>`;
     html += kv([
       ["Footprint", `${f(c.w)} × ${f(c.d)} mm (${f(c.area_mm2, 0)} mm²)`],
       ["Height", `${f(c.h * 1000, 0)} µm`],
@@ -807,6 +1080,7 @@ function inspector() {
     if (it.kind === "compute") html += `<div class="empty" style="margin-top:6px">${it.clusters} compute clusters · SRAM ${f(it.sram_mb)} MB · ${esc(it.note)}</div>`;
     else html += `<div class="empty" style="margin-top:6px">${it.channels} channels × ${it.banks_per_channel} banks · ${it.subarrays_per_bank} subarrays/bank${it.cim_fraction ? " · compute-in-memory region" : ""}. ${esc(it.note)}</div>`;
     el.innerHTML = html;
+    $("ins-zoom-chiplet").onclick = () => focusChipletUpClose(c.id);
     return;
   }
   if (pk.type === "link") {
@@ -828,60 +1102,195 @@ function inspector() {
   el.innerHTML = `<h2>${esc(pk.id)}</h2>` + (pk.type === "interposer" ? kv([["Size", `${f(D.package.interposer.w)} × ${f(D.package.interposer.d)} mm`], ["Area", `${f(D.package.interposer.w * D.package.interposer.d, 0)} mm²`], ["Routes", D.links.length]]) : "");
 }
 
-// ---------------------------------------------------------------- Memory Packaging Studio
-function memoryStudio() {
-  const D = S.data, el = $("mps");
-  const sel = D.components.find((c) => c.id === S.selected?.id && c.capacity_gb > 0) || D.components.find((c) => c.kind === "hbm_stack") || D.components.find((c) => c.capacity_gb > 0);
-  const P = D.params, cl = P.cooling;
-  const memRows = sel ? (() => {
-    const n = D.components.filter((c) => c.chiplet_id === sel.chiplet_id).length;
-    return `<div class="sec">${esc(sel.chiplet_id)} (${esc(sel.memory_tech || sel.kind)})</div>
-      ${fld("Stacks / chiplets", "count", n, 1)}
-      ${sel.kind === "hbm_stack" ? fld("Dies per stack", "stack_layers", sel.stack_layers, 1) : ""}
-      ${fld("Capacity per stack, GB", "capacity_per_chiplet_gb", sel.capacity_gb, 0.5)}
-      ${fld("Channels per stack", "channels", sel.channels, 1)}
-      ${fld("GB/s per channel", "bandwidth_per_channel_gbps", sel.channels ? sel.bandwidth_gbps / sel.channels : 0, 1)}
-      ${fld("Footprint, mm²", "area_mm2", sel.area_mm2, 1)}`;
-  })() : `<div class="empty" style="grid-column:1/3">This design has no memory chiplets.</div>`;
-  el.innerHTML = `<h2>Memory Packaging Studio</h2>
-    <div class="form" id="mps-form">${memRows}
-      <div class="sec">Stack & package</div>
-      ${fld("DRAM die thickness, µm", "s.die_thickness_um", P.die_thickness_um, 1)}
-      ${fld("Bond layer, µm", "s.bond_layer_um", P.bond_layer_um, 1)}
-      ${fld("TSV pitch, µm", "s.tsv_pitch_um", P.tsv_pitch_um, 1)}
-      ${fld("Microbump pitch, µm", "s.microbump_pitch_um", P.microbump_pitch_um, 1)}
-      ${fld("Chiplet spacing, mm", "s.spacing_mm", P.spacing_mm, 0.1)}
-      ${fld("Interposer margin, mm", "s.interposer_margin_mm", P.interposer_margin_mm, 0.1)}
-      <div class="sec">Thermal</div>
-      ${fld("Max temperature, °C", "c.max_temp_c", D.max_temp_c, 1)}
-      ${fld("Ambient, °C", "c.ambient_temp_c", D.thermal.ambient_c, 1)}
-      ${fld("Fans", "k.fans", cl.fans, 1)}
-      ${fld("CFM per fan", "k.fan_cfm", cl.fan_cfm, 1)}
-      ${fld("Fin count", "k.fin_count", cl.fin_count, 1)}
-      ${fld("Fin height, mm", "k.fin_height_mm", cl.fin_height_mm, 1)}
-    </div>
-    <div class="row"><button class="btn primary" id="mps-apply">Apply</button><label class="ck"><input type="checkbox" id="mps-ver"> save as new version</label></div>
-    <div class="msg" id="mps-msg"></div>`;
-  $("mps-apply").onclick = async () => {
-    const vals = {};
-    for (const inp of el.querySelectorAll("input[data-k]")) if (inp.value !== inp.defaultValue) vals[inp.dataset.k] = Number(inp.value);
-    if (!Object.keys(vals).length) { $("mps-msg").textContent = "Nothing changed."; return; }
-    const patch = {}, chip = { chiplet_id: sel?.chiplet_id }, mem = {};
-    for (const [k, v] of Object.entries(vals)) {
-      if (k.startsWith("s.")) (patch.studio ??= {})[k.slice(2)] = v;
-      else if (k.startsWith("k.")) ((patch.studio ??= {}).cooling ??= {})[k.slice(2)] = v;
-      else if (k.startsWith("c.")) (patch.constraints ??= {})[k.slice(2)] = v;
-      else if (k === "count" || k === "area_mm2") chip[k] = v;
-      else mem[k] = v;
-    }
-    if (Object.keys(mem).length) chip.memory = mem;
-    if (Object.keys(chip).length > 1) patch.chiplets = [chip];
-    await edit(patch, $("mps-ver").checked, "Applied");
+// ---------------------------------------------------------------- Custom Memory & Architecture Explorer
+const TECH_CLASSES = ["dram", "sram", "reram", "fefet", "mram", "pcm", "optical", "custom"];
+const FALLBACK_MEM_PRESETS = [
+  { name: "HBM3e", tech_class: "dram", node_nm: 14, stacks: 8, dies_per_stack: 12, cap_per_stack_gb: 36, io_gbps_per_pin: 9.6, bus_width_bits: 1024, energy_pj_per_bit: 3.5, read_latency_ns: 45, density_gb_per_mm2: 0.33, cim_capable: false, cim_tops_per_w: 0 },
+  { name: "HBM4", tech_class: "dram", node_nm: 10, stacks: 8, dies_per_stack: 16, cap_per_stack_gb: 48, io_gbps_per_pin: 8.0, bus_width_bits: 2048, energy_pj_per_bit: 2.8, read_latency_ns: 40, density_gb_per_mm2: 0.44, cim_capable: false, cim_tops_per_w: 0 },
+  { name: "3D-ReRAM", tech_class: "reram", node_nm: 22, stacks: 8, dies_per_stack: 8, cap_per_stack_gb: 64, io_gbps_per_pin: 6.4, bus_width_bits: 1024, energy_pj_per_bit: 1.4, read_latency_ns: 18, density_gb_per_mm2: 0.72, cim_capable: true, cim_tops_per_w: 18 },
+  { name: "FeFET-CIM", tech_class: "fefet", node_nm: 22, stacks: 8, dies_per_stack: 8, cap_per_stack_gb: 48, io_gbps_per_pin: 6.4, bus_width_bits: 1024, energy_pj_per_bit: 0.9, read_latency_ns: 12, density_gb_per_mm2: 0.58, cim_capable: true, cim_tops_per_w: 28 },
+  { name: "STT-MRAM", tech_class: "mram", node_nm: 16, stacks: 8, dies_per_stack: 8, cap_per_stack_gb: 32, io_gbps_per_pin: 8.0, bus_width_bits: 1024, energy_pj_per_bit: 1.8, read_latency_ns: 10, density_gb_per_mm2: 0.40, cim_capable: true, cim_tops_per_w: 12 },
+  { name: "3D-SRAM", tech_class: "sram", node_nm: 3, stacks: 8, dies_per_stack: 4, cap_per_stack_gb: 4, io_gbps_per_pin: 16.0, bus_width_bits: 2048, energy_pj_per_bit: 0.45, read_latency_ns: 2, density_gb_per_mm2: 0.08, cim_capable: true, cim_tops_per_w: 22 },
+  { name: "Optical-DRAM", tech_class: "optical", node_nm: 10, stacks: 8, dies_per_stack: 12, cap_per_stack_gb: 64, io_gbps_per_pin: 32.0, bus_width_bits: 1024, energy_pj_per_bit: 1.2, read_latency_ns: 28, density_gb_per_mm2: 0.48, cim_capable: false, cim_tops_per_w: 0 },
+];
+
+function normalizePreset(p) {
+  return {
+    name: p.name ?? "Custom-Mem",
+    tech_class: (p.tech_class ?? "dram").toLowerCase(),
+    node_nm: Number(p.node_nm ?? 14),
+    stacks: Number(p.stacks ?? 8),
+    dies_per_stack: Number(p.dies_per_stack ?? 12),
+    cap_per_stack_gb: Number(p.cap_per_stack_gb ?? p.capacity_gb_per_stack ?? 36),
+    io_gbps_per_pin: Number(p.io_gbps_per_pin ?? 9.6),
+    bus_width_bits: Number(p.bus_width_bits ?? 1024),
+    energy_pj_per_bit: Number(p.energy_pj_per_bit ?? 3.5),
+    read_latency_ns: Number(p.read_latency_ns ?? 45),
+    density_gb_per_mm2: Number(p.density_gb_per_mm2 ?? 0.33),
+    cim_capable: Boolean(p.cim_capable),
+    cim_tops_per_w: Number(p.cim_tops_per_w ?? 0),
   };
 }
-function fld(label, key, val, step) {
-  const v = Number.isFinite(val) ? +Number(val).toFixed(step < 1 ? 2 : 0) : "";
-  return `<label for="f-${key}">${esc(label)}</label><input id="f-${key}" data-k="${key}" type="number" step="${step}" value="${v}">`;
+
+async function loadMemPresets() {
+  try {
+    const r = await fetch("/api/lab/custom_memory/presets");
+    if (r.ok) {
+      const j = await r.json();
+      const list = Array.isArray(j) ? j : j.presets || [];
+      if (list.length) {
+        S.memPresets = list.map(normalizePreset);
+        if (!S.memDraft) S.memDraft = { ...S.memPresets[0] };
+        if (S.data) memoryStudio();
+        return;
+      }
+    }
+  } catch (_) { /* fallback below */ }
+  if (!S.memPresets.length) {
+    S.memPresets = FALLBACK_MEM_PRESETS.map(normalizePreset);
+    if (!S.memDraft) S.memDraft = { ...S.memPresets[0] };
+    if (S.data) memoryStudio();
+  }
+}
+
+function readMemDraftFromDom(el) {
+  const g = (k) => el.querySelector(`[data-cm="${k}"]`);
+  return {
+    name: g("name")?.value?.trim() || "Custom-Mem",
+    tech_class: g("tech_class")?.value || "dram",
+    node_nm: Number(g("node_nm")?.value || 14),
+    stacks: Number(g("stacks")?.value || 8),
+    dies_per_stack: Number(g("dies_per_stack")?.value || 12),
+    cap_per_stack_gb: Number(g("cap_per_stack_gb")?.value || 36),
+    io_gbps_per_pin: Number(g("io_gbps_per_pin")?.value || 9.6),
+    bus_width_bits: Number(g("bus_width_bits")?.value || 1024),
+    energy_pj_per_bit: Number(g("energy_pj_per_bit")?.value || 3.5),
+    read_latency_ns: Number(g("read_latency_ns")?.value || 45),
+    density_gb_per_mm2: Number(g("density_gb_per_mm2")?.value || 0.33),
+    cim_capable: Boolean(g("cim_capable")?.checked),
+    cim_tops_per_w: Number(g("cim_tops_per_w")?.value || 0),
+  };
+}
+
+function renderCustomMemDiff() {
+  const diffEl = $("cm-diff");
+  if (!diffEl) return;
+  const res = S.customMemResult;
+  if (!res) { diffEl.innerHTML = ""; return; }
+  const b = res.before || res.baseline || {};
+  const a = res.after || res.metrics || res.custom || res.result || res;
+  const rows = [
+    ["TB/s", f(b.bandwidth_tbps ?? b.tb_s, 2), f(a.bandwidth_tbps ?? a.tb_s, 2)],
+    ["TOPS", f(b.tops ?? b.effective_tops ?? b.peak_tops, 0), f(a.tops ?? a.effective_tops ?? a.peak_tops, 0)],
+    ["tok/s", f(b.tok_s ?? b.throughput_tokens_per_sec, 1), f(a.tok_s ?? a.throughput_tokens_per_sec, 1)],
+    ["Total Power W", f(b.total_power_w ?? b.power_w, 1), f(a.total_power_w ?? a.power_w, 1)],
+    ["Peak Temp °C", f(b.peak_temp_c ?? b.temp_c, 1), f(a.peak_temp_c ?? a.temp_c, 1)],
+    ["Bottleneck", esc(b.bottleneck || "–"), esc(a.bottleneck || "–")],
+  ];
+  diffEl.innerHTML = `<div class="cmp-grid">
+    <span class="hdr">Metric</span><span class="hdr" style="text-align:right">Before</span><span class="hdr" style="text-align:right">After</span>
+    ${rows.map(([k, bv, av]) => `<span>${esc(k)}</span><span class="val" style="color:var(--muted)">${bv}</span><span class="val" style="color:var(--accent)">${av}</span>`).join("")}
+  </div>`;
+}
+
+function renderComparisonsTable() {
+  const wrap = $("cm-table");
+  if (!wrap) return;
+  if (!S.memComparisons.length) {
+    wrap.innerHTML = `<div class="empty" style="margin-top:6px">No saved runs yet. Click "Test Custom Memory" to compare architectures.</div>`;
+    return;
+  }
+  wrap.innerHTML = `<div class="row" style="justify-content:space-between;margin-top:10px">
+      <h3 style="margin:0;border:0;padding:0">Saved Architecture Comparisons</h3>
+      <button class="btn" id="cm-clear" style="padding:2px 7px;font-size:10.5px">Clear</button>
+    </div>
+    <div class="cmp-table-wrap"><table class="cmp-table">
+      <thead><tr><th>Name</th><th>TB/s</th><th>TOPS</th><th>tok/s</th><th>W</th><th>°C</th><th>Bound</th></tr></thead>
+      <tbody>${S.memComparisons.map((r) => `<tr>
+        <td>${esc(r.name)}</td><td>${f(r.tbps, 2)}</td><td>${f(r.tops, 0)}</td><td>${f(r.toks, 0)}</td>
+        <td>${f(r.power_w, 0)}</td><td>${f(r.temp_c, 1)}</td><td>${esc(r.bottleneck)}</td>
+      </tr>`).join("")}</tbody>
+    </table></div>`;
+  $("cm-clear").onclick = () => { S.memComparisons = []; renderComparisonsTable(); };
+}
+
+function memoryStudio() {
+  const el = $("mps");
+  if (!S.memPresets.length) S.memPresets = FALLBACK_MEM_PRESETS.map(normalizePreset);
+  if (!S.memDraft) S.memDraft = { ...S.memPresets[0] };
+  const d = S.memDraft;
+  const cmNum = (label, key, val, step) => `<label for="cm-${key}">${esc(label)}</label><input id="cm-${key}" data-cm="${key}" type="number" step="${step}" value="${Number.isFinite(val) ? val : 0}">`;
+
+  el.innerHTML = `<h2>Custom Memory &amp; Architecture Explorer</h2>
+    <div class="form" id="cm-form">
+      <label for="cm-preset">Preset</label>
+      <select id="cm-preset">${S.memPresets.map((p, i) => `<option value="${i}"${p.name === d.name ? " selected" : ""}>${esc(p.name)}</option>`).join("")}</select>
+      <label for="cm-name">Name</label>
+      <input id="cm-name" data-cm="name" type="text" value="${esc(d.name)}">
+      <label for="cm-tech_class">Tech Class</label>
+      <select id="cm-tech_class" data-cm="tech_class">${TECH_CLASSES.map((t) => `<option value="${t}"${t === d.tech_class ? " selected" : ""}>${t}</option>`).join("")}</select>
+      ${cmNum("Node (nm)", "node_nm", d.node_nm, 1)}
+      ${cmNum("Stacks", "stacks", d.stacks, 1)}
+      ${cmNum("Dies/Stack", "dies_per_stack", d.dies_per_stack, 1)}
+      ${cmNum("Cap/Stack (GB)", "cap_per_stack_gb", d.cap_per_stack_gb, 0.5)}
+      ${cmNum("I/O Gbps/Pin", "io_gbps_per_pin", d.io_gbps_per_pin, 0.1)}
+      ${cmNum("Bus Width (bits)", "bus_width_bits", d.bus_width_bits, 64)}
+      ${cmNum("Energy (pJ/bit)", "energy_pj_per_bit", d.energy_pj_per_bit, 0.05)}
+      ${cmNum("Read Lat (ns)", "read_latency_ns", d.read_latency_ns, 0.5)}
+      ${cmNum("Density (GB/mm²)", "density_gb_per_mm2", d.density_gb_per_mm2, 0.01)}
+      <label for="cm-cim_capable">CIM Capable</label>
+      <input id="cm-cim_capable" data-cm="cim_capable" type="checkbox"${d.cim_capable ? " checked" : ""}>
+      ${cmNum("CIM TOPS/W", "cim_tops_per_w", d.cim_tops_per_w, 0.5)}
+    </div>
+    <div class="row"><button class="btn primary" id="cm-test">Test Custom Memory</button></div>
+    <div class="msg" id="mps-msg"></div>
+    <div id="cm-diff"></div>
+    <div id="cm-table"></div>`;
+
+  $("cm-form").oninput = () => { S.memDraft = readMemDraftFromDom(el); };
+  $("cm-preset").onchange = (e) => {
+    const p = S.memPresets[Number(e.target.value)];
+    if (!p) return;
+    S.memDraft = { ...p };
+    memoryStudio();
+  };
+  $("cm-test").onclick = async () => {
+    const draft = readMemDraftFromDom(el);
+    S.memDraft = draft;
+    const msg = $("mps-msg");
+    msg.className = "msg";
+    msg.textContent = "Evaluating custom memory…";
+    try {
+      const r = await fetch("/api/lab/custom_memory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ design_id: S.data?.design?.id, workload: $("workload").value, ...draft, memory: draft }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || r.statusText);
+      S.customMemResult = j;
+      const a = j.after || j.metrics || j.custom || j.result || j;
+      S.memComparisons.push({
+        name: draft.name,
+        tbps: a.bandwidth_tbps ?? a.tb_s,
+        tops: a.tops ?? a.effective_tops ?? a.peak_tops,
+        toks: a.tok_s ?? a.throughput_tokens_per_sec,
+        power_w: a.total_power_w ?? a.power_w,
+        temp_c: a.peak_temp_c ?? a.temp_c,
+        bottleneck: a.bottleneck || "–",
+      });
+      msg.className = "msg ok";
+      msg.textContent = `Evaluated ${draft.name} (${draft.tech_class})`;
+      renderCustomMemDiff();
+      renderComparisonsTable();
+      if (S.edaOpen && S.edaTab === "roofline") renderEdaDrawer();
+    } catch (e) {
+      msg.className = "msg err";
+      msg.textContent = e.message;
+    }
+  };
+  renderCustomMemDiff();
+  renderComparisonsTable();
 }
 
 async function edit(patch, newVersion, okText) {
@@ -934,6 +1343,100 @@ function focusOn(id) {
   camera.position.copy(c).add(new THREE.Vector3(0.3, 1, 0.6).normalize().multiplyScalar(r * 2.6 + 8));
 }
 
+function focusChipletUpClose(cid) {
+  const h = H.comp[cid];
+  if (!h || !S.data) return;
+  const b = new THREE.Box3().setFromObject(h.group);
+  const c = b.getCenter(new THREE.Vector3());
+  const r = b.getSize(new THREE.Vector3()).length() / 2;
+  const endTarget = c.clone();
+  const endPos = c.clone().add(new THREE.Vector3(0.18, 0.92, 0.38).normalize().multiplyScalar(Math.max(r * 1.85, 6)));
+  S.camAnim = {
+    t0: performance.now(),
+    dur: 450,
+    p0: camera.position.clone(),
+    t0v: controls.target.clone(),
+    p1: endPos,
+    t1v: endTarget,
+  };
+  openEdaDrawer("chiplet");
+}
+
+// ---------------------------------------------------------------- EDA Diagrams Drawer
+function mountSvg(el, out) {
+  if (typeof out === "string") el.innerHTML = out;
+  else if (out instanceof Node) el.replaceChildren(out);
+  else el.innerHTML = `<div class="empty">Diagram unavailable.</div>`;
+}
+
+function openEdaDrawer(tab) {
+  S.edaOpen = true;
+  if (tab) S.edaTab = tab;
+  $("edaDrawer").hidden = false;
+  for (const b of $("edaTabs").children) b.classList.toggle("on", b.dataset.tab === S.edaTab);
+  renderEdaDrawer();
+  if (S.data) hud();
+}
+
+function closeEdaDrawer() {
+  S.edaOpen = false;
+  $("edaDrawer").hidden = true;
+  if (S.data) hud();
+}
+
+function toggleEdaDrawer() {
+  if (S.edaOpen) closeEdaDrawer();
+  else openEdaDrawer(S.edaTab);
+}
+
+function renderEdaDrawer() {
+  if (!S.edaOpen || !S.data) return;
+  const D = S.data, body = $("edaBody"), sub = $("edaSubtitle");
+  const selComp = (S.selected && D.components.find((c) => c.id === S.selected.id)) || D.components.find((c) => c.kind === "compute_die") || D.components[0];
+  try {
+    if (S.edaTab === "chiplet") {
+      sub.textContent = selComp ? `${selComp.id} · ${selComp.kind.replace(/_/g, " ")}` : "";
+      if (!selComp) { body.innerHTML = `<div class="empty">No chiplet available.</div>`; return; }
+      mountSvg(body, renderChipletFloorplanSvg(selComp, D));
+    } else if (S.edaTab === "roofline") {
+      sub.textContent = S.customMemResult ? `${D.workload} · custom memory overlay` : D.workload;
+      mountSvg(body, renderRooflineSvg(D, S.customMemResult));
+    } else if (S.edaTab === "topology") {
+      sub.textContent = `${D.package.topology} · ${D.links.length} links`;
+      mountSvg(body, renderTopologySvg(D));
+    } else if (S.edaTab === "stackup") {
+      sub.textContent = selComp ? `${selComp.id} cross-section` : D.design.package_type;
+      mountSvg(body, renderStackupCrossSectionSvg(D, selComp));
+    }
+  } catch (e) {
+    body.innerHTML = `<div class="msg err">${esc(e.message)}</div>`;
+  }
+}
+
+$("edaTabs").onclick = (e) => {
+  const b = e.target.closest("button[data-tab]");
+  if (!b) return;
+  openEdaDrawer(b.dataset.tab);
+};
+$("edaClose").onclick = () => closeEdaDrawer();
+(() => {
+  const handle = $("edaResize"), drawer = $("edaDrawer");
+  let dragY = null, startH = 290;
+  handle.addEventListener("pointerdown", (ev) => {
+    dragY = ev.clientY;
+    startH = drawer.getBoundingClientRect().height;
+    handle.setPointerCapture(ev.pointerId);
+  });
+  handle.addEventListener("pointermove", (ev) => {
+    if (dragY === null) return;
+    const h = Math.max(150, Math.min(vp.clientHeight * 0.78, startH + (dragY - ev.clientY)));
+    drawer.style.height = `${Math.round(h)}px`;
+  });
+  const end = () => { dragY = null; };
+  handle.addEventListener("pointerup", end);
+  handle.addEventListener("pointercancel", end);
+})();
+
 // ---------------------------------------------------------------- UI wiring
 $("modes").innerHTML = MODES.map(([k, t, s]) => `<button data-m="${k}"${k === S.mode ? ' class="on"' : ""}>${t}<small>${s}</small></button>`).join("");
 $("modes").onclick = (e) => {
@@ -974,28 +1477,35 @@ async function loadDesigns() {
   const j = await r.json();
   const list = Array.isArray(j) ? j : j.designs || [];
   S.designs = list;
-  const prev = $("design").value;
-  $("design").innerHTML = list.map((d) => `<option value="${esc(d.design_id)}">${esc(d.name)} · v${esc(d.version)}</option>`).join("");
-  const want = new URLSearchParams(location.search).get("design");
-  if (prev && list.some((d) => d.design_id === prev)) $("design").value = prev;
-  else if (want && list.some((d) => d.design_id === want)) $("design").value = want;
+  const chipletDesigns = list.filter((d) => d.has_chiplets !== false);
+  const pool = chipletDesigns.length ? chipletDesigns : list;
+  if (prev && pool.some((d) => d.design_id === prev)) $("design").value = prev;
+  else if (want && pool.some((d) => d.design_id === want)) $("design").value = want;
   else {
     // prefer a design with real hardware detail
-    const good = list.find((d) => /hbm|llm|accelerator|echo/i.test(d.name)) || list[0];
+    const good = pool.find((d) => /hbm|llm|accelerator|echo/i.test(d.name)) || pool[0];
     if (good) $("design").value = good.design_id;
   }
   return list;
 }
 
 async function load(keepView) {
-  const id = $("design").value;
+  let id = $("design").value;
+  const pool = S.designs.filter((d) => d.has_chiplets !== false);
+  if (!id && pool.length) { id = pool[0].design_id; $("design").value = id; }
   if (!id) { setBusy(true, "No designs yet. Ask an agent to create one with chiplab, or use chip_design_from_template."); return; }
   setBusy(true, "Simulating package…");
   try {
     const wl = $("workload").value || "llm8_decode";
     const r = await fetch(`/api/studio/scene?design=${encodeURIComponent(id)}&workload=${encodeURIComponent(wl)}`);
     const j = await r.json();
-    if (!r.ok) throw new Error(j.error || r.statusText);
+    if (!r.ok) {
+      if (pool.length > 1) {
+        const next = pool.find((d) => d.design_id !== id);
+        if (next) { $("design").value = next.design_id; return load(keepView); }
+      }
+      throw new Error(j.error || r.statusText);
+    }
     show(j, keepView);
     history.replaceState(null, "", `?design=${encodeURIComponent(id)}`);
   } catch (e) { setBusy(true, `Could not load this design: ${e.message}`); return; }
@@ -1011,7 +1521,8 @@ function show(j, keepView) {
   S.tmax = Math.max(...all, j.thermal.ambient_c + 1);
   if (S.selected && !j.components.some((c) => c.id === S.selected.id) && S.selected.type !== "pcb_part") S.selected = null;
   build();
-  inspector(); memoryStudio(); summary();
+  inspector(); memoryStudio(); summary(); statusBar();
+  if (S.edaOpen) renderEdaDrawer();
   if (!keepView) frameAll();
   status(`${j.components.length} chiplets · ${f(j.power.package_w)} W · ${f(j.thermal.hotspot.temp_c)} °C peak`);
 }
@@ -1037,13 +1548,48 @@ function connect() {
 
 // ---------------------------------------------------------------- render loop
 const clock = new THREE.Clock();
+let fpsN = 0, fpsT = performance.now();
+const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const NICE = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100];
+function scaleBar() {                        // length of a round number of mm at the orbit target, like a layout editor ruler
+  const dist = camera.position.distanceTo(controls.target), h = renderer.domElement.clientHeight || 1;
+  const pxPerMm = h / (2 * dist * Math.tan((camera.fov * Math.PI) / 360));
+  const L = NICE.find((n) => n * pxPerMm >= 70) || NICE[NICE.length - 1];
+  $("sb-bar").style.width = `${Math.round(L * pxPerMm)}px`; $("sb-len").textContent = `${L} mm`;
+  $("scalebar").hidden = false;
+}
 renderer.setAnimationLoop(() => {
   const dt = Math.min(clock.getDelta(), 0.05);
   for (const a of animators) a(dt);
+  if (S.camAnim) {
+    const a = S.camAnim;
+    const u = Math.min(1, (performance.now() - a.t0) / a.dur);
+    const k = 1 - Math.pow(1 - u, 3);
+    camera.position.lerpVectors(a.p0, a.p1, k);
+    controls.target.lerpVectors(a.t0v, a.t1v, k);
+    if (u >= 1) S.camAnim = null;
+  }
   controls.update();
   renderer.render(scene3, camera);
+  if (++fpsN >= 30) { const n = performance.now(); $("sb-fps").textContent = `${Math.round(fpsN * 1000 / (n - fpsT))} fps`; fpsN = 0; fpsT = n; scaleBar(); }
 });
+renderer.domElement.addEventListener("pointermove", (ev) => {   // live cursor position on the board plane
+  const r = renderer.domElement.getBoundingClientRect();
+  ray.setFromCamera(new THREE.Vector2(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1), camera);
+  const p = new THREE.Vector3();
+  if (ray.ray.intersectPlane(groundPlane, p)) { $("cx").textContent = p.x.toFixed(2); $("cz").textContent = p.z.toFixed(2); }
+});
+function statusBar() {
+  if (!S.data) return;
+  const D = S.data, sel = S.selected;
+  $("sb-led").className = "led ok"; $("sb-conn").textContent = "design loaded";
+  $("sb-design").textContent = `${D.design.name} v${D.design.version}`;
+  $("sb-mode").textContent = S.mode;
+  $("sb-dies").textContent = String(D.components.length);
+  $("sb-sel").textContent = sel ? String(sel.id) : "none";
+}
 
 resize();
+loadMemPresets();
 loadDesigns().then(() => load()).catch((e) => setBusy(true, e.message));
 connect();

@@ -1,0 +1,1060 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ChipLab · AI Agent &amp; Custom Circuit Lab</title>
+<style>
+:root {
+  --bg: #0b0f17;
+  --panel: #121820;
+  --panel-2: #18202a;
+  --panel-3: #0e141b;
+  --line: #263140;
+  --text: #e6edf3;
+  --muted: #9aa7b4;
+  --faint: #6b7886;
+  --accent: #6ea0ff;
+  --accent-soft: #1b2b49;
+  --ok: #3fb960;
+  --warn: #e3a33b;
+  --bad: #f2555f;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.45 var(--sans);
+}
+body {
+  display: grid;
+  grid-template-rows: 48px 1fr;
+  overflow: hidden;
+}
+header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+header h1 {
+  font-size: 14px;
+  margin: 0;
+  font-weight: 650;
+  white-space: nowrap;
+}
+header h1 span { color: var(--accent); }
+nav.topnav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+nav.topnav a {
+  color: var(--muted);
+  text-decoration: none;
+  padding: 6px 10px;
+  border-radius: 7px;
+  font-weight: 500;
+}
+nav.topnav a:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+nav.topnav a.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+header .sp { flex: 1; }
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-family: var(--mono);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.pill .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--faint);
+}
+.pill.ok .dot { background: var(--ok); }
+.pill.warn .dot { background: var(--warn); }
+.pill.bad .dot { background: var(--bad); }
+
+.workspace {
+  display: grid;
+  grid-template-columns: 370px 1fr;
+  min-height: 0;
+}
+@media (max-width: 960px) {
+  .workspace { grid-template-columns: 1fr; grid-template-rows: auto 1fr; overflow: auto; }
+}
+
+.left-panel {
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px;
+  gap: 12px;
+}
+.section-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--faint);
+  font-weight: 650;
+  margin: 0 0 8px;
+}
+.card {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+.field:last-child { margin-bottom: 0; }
+.field label {
+  font-size: 11.5px;
+  color: var(--muted);
+  display: flex;
+  justify-content: space-between;
+}
+.row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+select, input, textarea {
+  width: 100%;
+  background: var(--panel-3);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 7px 9px;
+  font: 12px var(--mono);
+  outline: none;
+}
+select:focus, input:focus, textarea:focus {
+  border-color: var(--accent);
+}
+textarea {
+  resize: vertical;
+  min-height: 110px;
+  line-height: 1.4;
+}
+.seg {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  overflow: hidden;
+  background: var(--panel-3);
+}
+.seg button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 6px;
+  font: 12px var(--mono);
+  cursor: pointer;
+}
+.seg button.active {
+  background: var(--accent);
+  color: #0b0f17;
+  font-weight: 700;
+}
+.btn {
+  border: 1px solid var(--line);
+  background: var(--panel-3);
+  color: var(--text);
+  border-radius: 7px;
+  padding: 7px 12px;
+  font: 12.5px var(--sans);
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.btn:hover:not(:disabled) { border-color: var(--accent); }
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0b0f17;
+}
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-row { display: flex; gap: 8px; align-items: center; }
+
+.lab-output {
+  background: var(--panel-3);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  font: 11.5px/1.45 var(--mono);
+  color: var(--muted);
+  max-height: 300px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.kv-grid {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 10px;
+  font-size: 12px;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.kv-grid .k { color: var(--muted); }
+.kv-grid .v { font-family: var(--mono); color: var(--text); text-align: right; }
+
+.main-panel {
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  min-height: 0;
+  background: var(--bg);
+}
+.agent-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.agent-toolbar .group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.agent-toolbar label {
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.agent-toolbar select { width: 280px; }
+.agent-toolbar input[type="password"] { width: 210px; }
+
+.tools-drawer {
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--line);
+  padding: 10px 16px;
+  max-height: 180px;
+  overflow-y: auto;
+  display: none;
+}
+.tools-drawer.open { display: block; }
+.tools-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tool-chip {
+  font: 11px var(--mono);
+  background: var(--panel-3);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 8px;
+  color: var(--muted);
+}
+
+.chat-feed {
+  overflow-y: auto;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+}
+.empty-state {
+  margin: auto;
+  max-width: 620px;
+  text-align: center;
+  color: var(--muted);
+  padding: 24px;
+}
+.empty-state h2 {
+  font-size: 17px;
+  color: var(--text);
+  margin: 0 0 8px;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 14px;
+}
+.chip {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.chip:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.msg {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 900px;
+}
+.msg.user {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+.msg.assistant {
+  align-self: flex-start;
+  width: 100%;
+}
+.msg-role {
+  font-size: 11px;
+  color: var(--faint);
+  font-family: var(--mono);
+}
+.msg-bubble {
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  line-height: 1.55;
+  word-break: break-word;
+}
+.msg.user .msg-bubble {
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+.msg.error .msg-bubble {
+  border-color: var(--bad);
+  background: #281318;
+  color: #ffb4ba;
+}
+.msg-bubble pre {
+  background: var(--panel-3);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 8px 10px;
+  overflow-x: auto;
+  font: 12px/1.45 var(--mono);
+  margin: 8px 0;
+}
+.msg-bubble code {
+  font-family: var(--mono);
+  background: var(--panel-3);
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.msg-bubble pre code { background: none; padding: 0; }
+
+.trace-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.trace-item {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.trace-item summary {
+  padding: 6px 10px;
+  cursor: pointer;
+  font: 11.5px var(--mono);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  list-style: none;
+}
+.trace-item summary::-webkit-details-marker { display: none; }
+.trace-item summary .badge {
+  margin-left: auto;
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--panel-3);
+  color: var(--muted);
+}
+.trace-item summary .badge.ok { color: var(--ok); }
+.trace-item summary .badge.err { color: var(--bad); }
+.trace-body {
+  border-top: 1px solid var(--line);
+  padding: 8px 10px;
+  background: var(--panel-3);
+  font: 11px/1.45 var(--mono);
+  color: var(--muted);
+  white-space: pre-wrap;
+  max-height: 240px;
+  overflow: auto;
+}
+
+.composer {
+  padding: 12px 16px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.composer-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.composer-chips .chip {
+  padding: 3px 9px;
+  font-size: 11px;
+}
+.composer-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+.composer-row textarea {
+  min-height: 44px;
+  max-height: 150px;
+  font-family: var(--sans);
+  font-size: 13px;
+}
+</style>
+<link rel="stylesheet" href="/eda.css">
+</head>
+<body>
+
+<header>
+  <h1><span>ChipLab</span> · AI Agent &amp; Circuit Lab</h1>
+  <nav class="topnav">
+    <a href="/" data-route="/">Live Studio</a>
+    <a href="/live" data-route="/live">Activity Feed</a>
+    <a href="/asic" data-route="/asic">ASIC Flow</a>
+    <a href="/agent" data-route="/agent" class="active">AI Agent</a>
+  </nav>
+  <div class="sp"></div>
+  <span id="desktopBadge" class="pill" style="display:none">Desktop</span>
+  <span id="statusPill" class="pill"><span class="dot"></span><span id="statusText">Checking backend...</span></span>
+</header>
+
+<div class="workspace">
+  <!-- Left Panel: Custom Circuit & Multi-nm Quick Lab -->
+  <aside class="left-panel">
+    <div>
+      <div class="section-title">Custom Circuit &amp; Multi-nm Quick Lab</div>
+      <div class="card">
+        <div class="field">
+          <label for="circTemplate">Circuit Template</label>
+          <select id="circTemplate">
+            <option value="cmos_inverter">cmos_inverter (CMOS Inverter)</option>
+            <option value="ring_oscillator">ring_oscillator (N-Stage Ring Osc)</option>
+            <option value="sram_6t">sram_6t (6T SRAM Bitcell)</option>
+            <option value="1t1r">1t1r (1T1R Memristor Cell)</option>
+            <option value="crossbar_column">crossbar_column (Hybrid Crossbar)</option>
+            <option value="custom_spice">custom_spice (Paste SPICE Netlist)</option>
+          </select>
+        </div>
+
+        <div class="row-2">
+          <div class="field">
+            <label for="nodeNm">Process Node</label>
+            <select id="nodeNm">
+              <option value="180">180 nm</option>
+              <option value="130">130 nm</option>
+              <option value="65">65 nm</option>
+              <option value="28">28 nm</option>
+              <option value="14">14 nm</option>
+              <option value="7">7 nm</option>
+              <option value="5">5 nm</option>
+              <option value="3" selected>3 nm</option>
+              <option value="2">2 nm</option>
+              <option value="1.4">1.4 nm</option>
+              <option value="1.0">1.0 nm</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Corner</label>
+            <div class="seg" id="cornerSeg">
+              <button type="button" data-corner="TT" class="active">TT</button>
+              <button type="button" data-corner="FF">FF</button>
+              <button type="button" data-corner="SS">SS</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="field" id="extraParamWrap">
+          <label for="extraParam" id="extraParamLabel">Load Cap (fF)</label>
+          <input id="extraParam" type="number" step="any" value="5.0">
+        </div>
+
+        <div class="field" id="spiceWrap" style="display:none">
+          <label for="spiceNetlist">SPICE Netlist</label>
+          <textarea id="spiceNetlist" placeholder="* Paste SPICE netlist here&#10;Vdd vdd 0 0.75&#10;M1 out in vdd vdd PMOS W=120n L=3n&#10;M2 out in 0 0 NMOS W=60n L=3n"></textarea>
+        </div>
+
+        <div class="btn-row" style="margin-top:10px">
+          <button type="button" id="runLabBtn" class="btn primary" style="flex:1">Run Simulation</button>
+          <button type="button" id="sendToChatBtn" class="btn" title="Ask AI Agent about this circuit">Ask Agent</button>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;min-height:0;flex:1">
+      <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
+        <span>Simulation Result</span>
+        <span id="labMethodBadge" class="pill" style="font-size:10px;padding:1px 6px">ready</span>
+      </div>
+      <div id="labMetrics" class="kv-grid" style="display:none"></div>
+      <div id="labOutput" class="lab-output">Select a circuit template, process node, and corner, then click Run Simulation.</div>
+    </div>
+  </aside>
+
+  <!-- Main Panel: Built-in OpenRouter Free AI Agent Chat -->
+  <main class="main-panel">
+    <div class="agent-toolbar">
+      <div class="group">
+        <label for="modelSelect">Model</label>
+        <select id="modelSelect">
+          <option value="nvidia/nemotron-3-ultra-550b-a55b:free">nvidia/nemotron-3-ultra-550b-a55b:free</option>
+        </select>
+      </div>
+      <div class="group">
+        <label for="apiKeyInput">OpenRouter Key</label>
+        <input id="apiKeyInput" type="password" placeholder="Optional (uses server env if blank)" autocomplete="off">
+      </div>
+      <div class="sp"></div>
+      <button type="button" id="toolsToggleBtn" class="btn">Tools (<span id="toolsCount">0</span>)</button>
+      <button type="button" id="clearChatBtn" class="btn">Clear</button>
+    </div>
+
+    <div id="toolsDrawer" class="tools-drawer">
+      <div class="section-title">Available ChipLab Agent Tools</div>
+      <div id="toolsList" class="tools-list"></div>
+    </div>
+
+    <div id="chatFeed" class="chat-feed">
+      <div id="emptyState" class="empty-state">
+        <h2>ChipLab Built-in AI Agent</h2>
+        <p>Ask questions, run multi-nm circuit simulations, sweep memristor or CMOS scaling, inspect GPU status, and explore trade-offs with live tool execution.</p>
+        <div class="chips">
+          <button type="button" class="chip" data-prompt="Simulate a 3nm CMOS inverter and compare with 28nm">Simulate a 3nm CMOS inverter and compare with 28nm</button>
+          <button type="button" class="chip" data-prompt="Sweep memristor scaling from 65nm to 2nm">Sweep memristor scaling from 65nm to 2nm</button>
+          <button type="button" class="chip" data-prompt="Check GPU status">Check GPU status</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="composer">
+      <div class="composer-chips">
+        <button type="button" class="chip" data-prompt="Simulate a 3nm CMOS inverter and compare with 28nm">3nm vs 28nm Inverter</button>
+        <button type="button" class="chip" data-prompt="Sweep memristor scaling from 65nm to 2nm">Memristor 65nm→2nm</button>
+        <button type="button" class="chip" data-prompt="Check GPU status">Check GPU status</button>
+      </div>
+      <div class="composer-row">
+        <textarea id="chatInput" rows="2" placeholder="Ask ChipLab AI Agent anything about circuits, process nodes, memristors, or GPU acceleration... (Enter to send, Shift+Enter for newline)"></textarea>
+        <button type="button" id="sendBtn" class="btn primary" style="height:44px;padding:0 18px">Send</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  const DEFAULT_MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free";
+  const KEY_STORAGE = "chiplab_openrouter_api_key";
+
+  const el = {
+    statusPill: document.getElementById("statusPill"),
+    statusText: document.getElementById("statusText"),
+    desktopBadge: document.getElementById("desktopBadge"),
+    circTemplate: document.getElementById("circTemplate"),
+    nodeNm: document.getElementById("nodeNm"),
+    cornerSeg: document.getElementById("cornerSeg"),
+    extraParamWrap: document.getElementById("extraParamWrap"),
+    extraParamLabel: document.getElementById("extraParamLabel"),
+    extraParam: document.getElementById("extraParam"),
+    spiceWrap: document.getElementById("spiceWrap"),
+    spiceNetlist: document.getElementById("spiceNetlist"),
+    runLabBtn: document.getElementById("runLabBtn"),
+    sendToChatBtn: document.getElementById("sendToChatBtn"),
+    labMethodBadge: document.getElementById("labMethodBadge"),
+    labMetrics: document.getElementById("labMetrics"),
+    labOutput: document.getElementById("labOutput"),
+    modelSelect: document.getElementById("modelSelect"),
+    apiKeyInput: document.getElementById("apiKeyInput"),
+    toolsToggleBtn: document.getElementById("toolsToggleBtn"),
+    toolsCount: document.getElementById("toolsCount"),
+    toolsDrawer: document.getElementById("toolsDrawer"),
+    toolsList: document.getElementById("toolsList"),
+    clearChatBtn: document.getElementById("clearChatBtn"),
+    chatFeed: document.getElementById("chatFeed"),
+    emptyState: document.getElementById("emptyState"),
+    chatInput: document.getElementById("chatInput"),
+    sendBtn: document.getElementById("sendBtn"),
+  };
+
+  let selectedCorner = "TT";
+  let chatHistory = [];
+  let isSending = false;
+
+  // Desktop Electron integration if running inside Electron
+  if (window.chiplabDesktop) {
+    el.desktopBadge.style.display = "inline-flex";
+    el.desktopBadge.textContent = `Desktop (${window.chiplabDesktop.platform})`;
+    document.querySelectorAll("nav.topnav a[data-route]").forEach((a) => {
+      a.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        window.chiplabDesktop.openRoute(a.dataset.route);
+      });
+    });
+  }
+
+  // Persist OpenRouter key in localStorage only
+  try {
+    const savedKey = localStorage.getItem(KEY_STORAGE);
+    if (savedKey) el.apiKeyInput.value = savedKey;
+  } catch (_) {}
+
+  el.apiKeyInput.addEventListener("input", () => {
+    try {
+      const val = el.apiKeyInput.value.trim();
+      if (val) localStorage.setItem(KEY_STORAGE, val);
+      else localStorage.removeItem(KEY_STORAGE);
+    } catch (_) {}
+  });
+
+  // Corner segmented control
+  el.cornerSeg.querySelectorAll("button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      selectedCorner = btn.dataset.corner;
+      el.cornerSeg.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b === btn));
+    });
+  });
+
+  // Template-specific parameter UI
+  function syncTemplateUi() {
+    const tpl = el.circTemplate.value;
+    const isSpice = tpl === "custom_spice";
+    el.spiceWrap.style.display = isSpice ? "flex" : "none";
+    el.extraParamWrap.style.display = isSpice ? "none" : "flex";
+    if (tpl === "cmos_inverter") {
+      el.extraParamLabel.textContent = "Load Cap (fF)";
+      el.extraParam.type = "number";
+      el.extraParam.value = "5.0";
+    } else if (tpl === "ring_oscillator") {
+      el.extraParamLabel.textContent = "Stages (odd integer)";
+      el.extraParam.type = "number";
+      el.extraParam.value = "5";
+    } else if (tpl === "1t1r") {
+      el.extraParamLabel.textContent = "Device Tech (memristor / pcm / ftj)";
+      el.extraParam.type = "text";
+      el.extraParam.value = "memristor";
+    } else if (tpl === "crossbar_column") {
+      el.extraParamLabel.textContent = "Rows";
+      el.extraParam.type = "number";
+      el.extraParam.value = "16";
+    } else {
+      el.extraParamWrap.style.display = "none";
+    }
+  }
+  el.circTemplate.addEventListener("change", syncTemplateUi);
+  syncTemplateUi();
+
+  async function fetchJson(url, opts = {}) {
+    const res = await fetch(url, opts);
+    const text = await res.text();
+    let data = {};
+    try { data = text ? JSON.parse(text) : {}; } catch (_) { data = { raw: text }; }
+    if (!res.ok) {
+      const msg = data.error || data.detail || `HTTP ${res.status}`;
+      const err = new Error(msg);
+      err.status = res.status;
+      err.data = data;
+      throw err;
+    }
+    return data;
+  }
+
+  // Poll /api/status
+  async function refreshStatus() {
+    try {
+      const st = await fetchJson("/api/status");
+      el.statusPill.className = "pill ok";
+      const designs = st.designs ?? 0;
+      el.statusText.textContent = `Backend Online · ${designs} designs`;
+    } catch (_) {
+      el.statusPill.className = "pill bad";
+      el.statusText.textContent = "Backend Offline";
+    }
+  }
+
+  // Load /api/agent/models
+  async function loadModels() {
+    try {
+      const data = await fetchJson("/api/agent/models");
+      const freeList = Array.isArray(data) ? data : (data.models || data.free_models || []);
+      const localOllama = data.local_models?.ollama || [];
+      const localLms = data.local_models?.lmstudio || [];
+      const list = [
+        ...freeList.map((m) => ({ ...(typeof m === "string" ? { id: m, name: m } : m), provider: "openrouter" })),
+        ...localOllama.map((m) => ({ ...(typeof m === "string" ? { id: m, name: m } : m), provider: "ollama" })),
+        ...localLms.map((m) => ({ ...(typeof m === "string" ? { id: m, name: m } : m), provider: "lmstudio" })),
+      ];
+      if (!list.length) return;
+      el.modelSelect.innerHTML = "";
+      let hasDefault = false;
+      for (const item of list) {
+        const id = typeof item === "string" ? item : (item.id || item.model || item.name);
+        if (!id) continue;
+        const label = typeof item === "string" ? item : (item.label || item.name || id);
+        const opt = document.createElement("option");
+        opt.value = id;
+        opt.textContent = label;
+        el.modelSelect.appendChild(opt);
+      }
+      const targetDefault = data.default_model || DEFAULT_MODEL;
+      for (const opt of el.modelSelect.options) {
+        if (opt.value === targetDefault) { hasDefault = true; break; }
+      }
+      if (!hasDefault) {
+        const opt = document.createElement("option");
+        opt.value = targetDefault;
+        opt.textContent = `${targetDefault} (Built-in / Free)`;
+        el.modelSelect.prepend(opt);
+      }
+      el.modelSelect.value = targetDefault;
+    } catch (_) {
+      // Keep default fallback option
+    }
+  }
+
+  // Load /api/agent/tools
+  async function loadTools() {
+    try {
+      const data = await fetchJson("/api/agent/tools");
+      const list = Array.isArray(data) ? data : (data.tools || []);
+      el.toolsCount.textContent = String(list.length);
+      el.toolsList.innerHTML = "";
+      for (const t of list) {
+        const name = typeof t === "string" ? t : (t.name || t.function?.name || JSON.stringify(t));
+        const desc = typeof t === "object" ? (t.description || t.function?.description || "") : "";
+        const span = document.createElement("span");
+        span.className = "tool-chip";
+        span.textContent = name;
+        if (desc) span.title = desc;
+        el.toolsList.appendChild(span);
+      }
+    } catch (_) {
+      el.toolsCount.textContent = "—";
+    }
+  }
+
+  el.toolsToggleBtn.addEventListener("click", () => {
+    el.toolsDrawer.classList.toggle("open");
+  });
+
+  // Custom Circuit & Multi-nm Quick Lab execution
+  function buildLabPayload() {
+    const template = el.circTemplate.value;
+    const node_nm = Number(el.nodeNm.value);
+    const corner = selectedCorner;
+    const args = { template, node_nm, corner };
+    if (template === "custom_spice") {
+      args.netlist = el.spiceNetlist.value.trim();
+    } else if (template === "cmos_inverter") {
+      args.load_cap_ff = Number(el.extraParam.value || 5.0);
+    } else if (template === "ring_oscillator") {
+      args.n_stages = Math.max(3, parseInt(el.extraParam.value || "5", 10));
+    } else if (template === "1t1r") {
+      args.tech = (el.extraParam.value || "memristor").trim();
+    } else if (template === "crossbar_column") {
+      args.n_rows = Math.max(1, parseInt(el.extraParam.value || "16", 10));
+    }
+    return args;
+  }
+
+  function renderLabMetrics(obj) {
+    el.labMetrics.innerHTML = "";
+    if (!obj || typeof obj !== "object") {
+      el.labMetrics.style.display = "none";
+      return;
+    }
+    const flat = [];
+    const pick = obj.metrics && typeof obj.metrics === "object" ? obj.metrics : obj;
+    for (const [k, v] of Object.entries(pick)) {
+      if (v === null || typeof v === "object") continue;
+      flat.push([k, typeof v === "number" ? (Number.isInteger(v) ? v : v.toPrecision(4)) : String(v)]);
+      if (flat.length >= 8) break;
+    }
+    if (!flat.length) {
+      el.labMetrics.style.display = "none";
+      return;
+    }
+    for (const [k, v] of flat) {
+      const dk = document.createElement("div");
+      dk.className = "k";
+      dk.textContent = k;
+      const dv = document.createElement("div");
+      dv.className = "v";
+      dv.textContent = v;
+      el.labMetrics.append(dk, dv);
+    }
+    el.labMetrics.style.display = "grid";
+  }
+
+  async function runQuickLab() {
+    const args = buildLabPayload();
+    el.runLabBtn.disabled = true;
+    el.labMethodBadge.textContent = "running...";
+    el.labMetrics.style.display = "none";
+    el.labOutput.textContent = "Executing simulation...";
+
+    try {
+      // 1) Try direct tool endpoint if exposed by agent_routes
+      try {
+        const res = await fetchJson("/api/agent/tool", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tool: args.template === "custom_spice" ? "simulate_custom_spice" : "simulate_custom_circuit",
+            args,
+          }),
+        });
+        el.labMethodBadge.textContent = "/api/agent/tool";
+        renderLabMetrics(res.result || res);
+        el.labOutput.textContent = JSON.stringify(res, null, 2);
+        return;
+      } catch (err) {
+        if (err.status !== 404 && err.status !== 405) throw err;
+      }
+
+      // 2) Fallback: ask /api/agent/chat to run it if /api/agent/tool isn't mounted
+      const prompt = args.template === "custom_spice"
+        ? `Simulate this custom SPICE netlist at ${args.node_nm}nm (${args.corner} corner):\n\`\`\`spice\n${args.netlist}\n\`\`\``
+        : `Run a custom circuit simulation for template "${args.template}" at node_nm=${args.node_nm}, corner=${args.corner}, params=${JSON.stringify(args)}. Return key metrics.`;
+
+      const body = {
+        model: el.modelSelect.value || DEFAULT_MODEL,
+        messages: [{ role: "user", content: prompt }],
+      };
+      const key = el.apiKeyInput.value.trim();
+      if (key) body.api_key = key;
+
+      const chatRes = await fetchJson("/api/agent/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      el.labMethodBadge.textContent = "/api/agent/chat";
+      const reply = extractReply(chatRes);
+      el.labOutput.textContent = reply || JSON.stringify(chatRes, null, 2);
+    } catch (err) {
+      el.labMethodBadge.textContent = "error";
+      el.labOutput.textContent = `Simulation error: ${err.message}`;
+    } finally {
+      el.runLabBtn.disabled = false;
+    }
+  }
+
+  el.runLabBtn.addEventListener("click", runQuickLab);
+
+  el.sendToChatBtn.addEventListener("click", () => {
+    const args = buildLabPayload();
+    const msg = args.template === "custom_spice"
+      ? `Analyze and simulate this SPICE netlist at ${args.node_nm}nm (${args.corner}):\n${args.netlist}`
+      : `Simulate ${args.template} at ${args.node_nm}nm (${args.corner} corner) with params ${JSON.stringify(args)} and explain the PPA trade-offs.`;
+    el.chatInput.value = msg;
+    sendMessage();
+  });
+
+  // Minimal safe markdown-ish renderer (escapes HTML first)
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c]));
+  }
+
+  function renderRichText(text) {
+    const escaped = escapeHtml(String(text || ""));
+    const blocks = [];
+    let idx = 0;
+    const withCode = escaped.replace(/```([\w-]*)\n([\s\S]*?)```/g, (_m, _lang, code) => {
+      const token = `__CODE_BLOCK_${idx++}__`;
+      blocks.push(`<pre><code>${code}</code></pre>`);
+      return token;
+    });
+    let html = withCode
+      .replace(/`([^`\n]+)`/g, "<code>$1</code>")
+      .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/\n/g, "<br>");
+    blocks.forEach((blk, i) => {
+      html = html.replace(`__CODE_BLOCK_${i}__`, blk);
+    });
+    return html;
+  }
+
+  function extractReply(data) {
+    if (!data) return "";
+    if (typeof data.reply === "string") return data.reply;
+    if (typeof data.response === "string") return data.response;
+    if (typeof data.content === "string") return data.content;
+    if (data.message && typeof data.message.content === "string") return data.message.content;
+    if (Array.isArray(data.choices) && data.choices[0]?.message?.content) {
+      return data.choices[0].message.content;
+    }
+    return "";
+  }
+
+  function extractTraces(data) {
+    if (!data || typeof data !== "object") return [];
+    const raw = data.tool_calls || data.tool_results || data.trace || data.steps || [];
+    return Array.isArray(raw) ? raw : [];
+  }
+
+  function appendMessage(role, content, traces = [], isError = false) {
+    if (el.emptyState) el.emptyState.style.display = "none";
+    const wrap = document.createElement("div");
+    wrap.className = `msg ${role}${isError ? " error" : ""}`;
+
+    const roleEl = document.createElement("div");
+    roleEl.className = "msg-role";
+    roleEl.textContent = role === "user" ? "you" : (isError ? "error" : "chiplab-agent");
+    wrap.appendChild(roleEl);
+
+    if (traces.length) {
+      const traceList = document.createElement("div");
+      traceList.className = "trace-list";
+      for (const tr of traces) {
+        const det = document.createElement("details");
+        det.className = "trace-item";
+        const name = tr.tool || tr.name || tr.function?.name || "tool_call";
+        const ok = tr.ok !== false && !tr.error;
+        const dur = tr.duration_ms != null ? `${Math.round(tr.duration_ms)} ms` : "";
+
+        const sum = document.createElement("summary");
+        sum.innerHTML = `<span>&#9881; ${escapeHtml(String(name))}</span>` +
+          `<span class="badge ${ok ? "ok" : "err"}">${ok ? "ok" : "err"}${dur ? " · " + dur : ""}</span>`;
+        det.appendChild(sum);
+
+        const body = document.createElement("div");
+        body.className = "trace-body";
+        body.textContent = JSON.stringify({
+          args: tr.args ?? tr.arguments ?? tr.input ?? {},
+          result: tr.result ?? tr.output ?? tr.error ?? tr,
+        }, null, 2);
+        det.appendChild(body);
+        traceList.appendChild(det);
+      }
+      wrap.appendChild(traceList);
+    }
+
+    const bubble = document.createElement("div");
+    bubble.className = "msg-bubble";
+    bubble.innerHTML = renderRichText(content || "(empty response)");
+    wrap.appendChild(bubble);
+
+    el.chatFeed.appendChild(wrap);
+    el.chatFeed.scrollTop = el.chatFeed.scrollHeight;
+  }
+
+  async function sendMessage(overrideText) {
+    if (isSending) return;
+    const text = (overrideText ?? el.chatInput.value).trim();
+    if (!text) return;
+
+    if (!overrideText) el.chatInput.value = "";
+    chatHistory.push({ role: "user", content: text });
+    appendMessage("user", text);
+
+    isSending = true;
+    el.sendBtn.disabled = true;
+    el.sendBtn.textContent = "Thinking...";
+
+    try {
+      const payload = {
+        model: el.modelSelect.value || DEFAULT_MODEL,
+        messages: chatHistory,
+      };
+      const key = el.apiKeyInput.value.trim();
+      if (key) payload.api_key = key;
+
+      const data = await fetchJson("/api/agent/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const reply = extractReply(data) || JSON.stringify(data, null, 2);
+      const traces = extractTraces(data);
+      chatHistory.push({ role: "assistant", content: reply });
+      appendMessage("assistant", reply, traces);
+    } catch (err) {
+      appendMessage("assistant", `Request failed: ${err.message}`, [], true);
+    } finally {
+      isSending = false;
+      el.sendBtn.disabled = false;
+      el.sendBtn.textContent = "Send";
+      el.chatInput.focus();
+    }
+  }
+
+  el.sendBtn.addEventListener("click", () => sendMessage());
+  el.chatInput.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter" && !ev.shiftKey) {
+      ev.preventDefault();
+      sendMessage();
+    }
+  });
+
+  el.clearChatBtn.addEventListener("click", () => {
+    chatHistory = [];
+    el.chatFeed.innerHTML = "";
+    if (el.emptyState) {
+      el.emptyState.style.display = "block";
+      el.chatFeed.appendChild(el.emptyState);
+    }
+  });
+
+  document.querySelectorAll(".chip[data-prompt]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      sendMessage(btn.dataset.prompt);
+    });
+  });
+
+  refreshStatus();
+  loadModels();
+  loadTools();
+  setInterval(refreshStatus, 10000);
+})();
+</script>
+</body>
+</html>

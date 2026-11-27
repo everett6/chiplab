@@ -21,6 +21,7 @@ import time
 import uuid
 from typing import Any
 
+from ..credibility import require_credible_design
 from ..schemas.common import Provenance
 from ..schemas.simulation import AssumptionRecord, FidelityLevel, SimulationConfig
 from ..schemas.simulation import SimulationResult
@@ -62,6 +63,7 @@ def run_specialized_simulation(design: Any, workload: WorkloadSpec | None,
     from ..schemas.workload import expand_workload_operators, is_llm_decode
     from .analytical import run_analytical_simulation
 
+    require_credible_design(design)
     wl = workload if workload is not None else WorkloadSpec()
     plain, _ = plain_design(design)
     plain, _, _ = apply_ecore_to_design(plain)

@@ -68,10 +68,20 @@ def _path(root: Path, lid: str) -> Path:
     return p
 
 
+def _klayout(module: str) -> Any:
+    """Import a klayout submodule, reporting a missing install as a LayoutError."""
+    import importlib
+    try:
+        return importlib.import_module(f"klayout.{module}")
+    except ImportError as e:
+        raise LayoutError("KLayout is not installed (pip install klayout)") from e
+
+
 def info(root: Path, lid: str) -> dict[str, Any]:
-    import klayout.db as kdb
+    path = _path(root, lid)          # validate the id before touching KLayout
+    kdb = _klayout("db")
     ly = kdb.Layout()
-    ly.read(str(_path(root, lid)))
+    ly.read(str(path))
     tops = [c.name for c in ly.top_cells()]
     top = ly.top_cells()[0] if tops else None
     layers = []
@@ -95,7 +105,7 @@ def info(root: Path, lid: str) -> dict[str, Any]:
 def render(root: Path, lid: str, layers: list[str] | None = None, width: int = 1200,
            height: int = 800) -> dict[str, Any]:
     """PNG of the layout from KLayout's LayoutView; ``layers`` like ["1/0", "2/0"]."""
-    import klayout.lay as lay
+    path = _path(root, lid)
     width = max(200, min(int(width), 2400))
     height = max(200, min(int(height), 2400))
     want = None
@@ -105,8 +115,9 @@ def render(root: Path, lid: str, layers: list[str] | None = None, width: int = 1
             if not re.fullmatch(r"\d{1,5}/\d{1,5}", s):
                 raise LayoutError(f"bad layer spec {s!r}; use layer/datatype like 1/0")
             want.add(s)
+    lay = _klayout("lay")
     lv = lay.LayoutView()
-    lv.load_layout(str(_path(root, lid)), True)
+    lv.load_layout(str(path), True)
     lv.max_hier()
     it = lv.begin_layers()
     while not it.at_end():

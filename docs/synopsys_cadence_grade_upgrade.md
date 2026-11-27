@@ -431,20 +431,77 @@
 
 ### 3.14 3D-IC (TSV, Hybrid Bonding, Interposer, Thermal Coupling)
 
+
 - **TSV**: Through-Silicon Via placement and optimization
-- **Hybrid Bonding**: Die-to-die and die-to-interposer bonding
-- **Interposer**: Organic/silicon interposer design
-- **Thermal Coupling**: Thermal interaction between dies
+- **Hybrid Bonding**: Die-to-die and die-to-interposer bonding with atomic-scale alignment
+- **Interposer**: Organic/silicon interposer design for 2.5D and 3D integration
+- **Thermal Coupling**: Thermal interaction between dies and interposer layers
 
-**ChipLab Current Status**: No 3D-IC support
+### 3.15 New Experimental Technologies & Flexible MCP Tools
 
-**Missing**: Full 3D-IC design flow, TSV optimization, bonding verification
 
-**Priority**: P2 - Emerging technology, future-focused
+**Memristor/ReRAM**
+- Non-volatile resistive memory with analog conductance states
+- In-memory computing capabilities for AI/ML workloads
+- Programming voltage/current control, read margin optimization
+- ChipLab integration: Device-level modeling, array-level simulation, compute-in-memory workflows
 
-**Effort**: High - new 3D design capabilities
+**PCM (Phase Change Memory)**
+- Chalcogenide-based phase-change material (Ge2Sb2Te5)
+- Rapid thermal switching between amorphous and crystalline states
+- Multi-level cell (MLC) storage with analog resistance states
+- ChipLab integration: Thermal-aware modeling, endurance simulation, write/read voltage profiling
 
----
+**Ferroelectric (FeRAM)**
+- HfO2-based ferroelectric materials with switchable polarization
+- Non-volatile memory with fast read/write speeds
+- Fatigue and retention characteristic modeling
+- ChipLab integration: Polarization hysteresis modeling, fatigue tracking, read margin analysis
+
+**Spintronic/MRAM**
+- Magnetic tunnel junctions (MTJ) with perpendicular magnetic anisotropy
+- Spin-transfer torque (STT) and spin-orbit torque (SOT) switching
+- Non-volatile memory with high endurance (>10^12 cycles)
+- ChipLab integration: Magnetic field modeling, switching probability analysis, thermal stability assessment
+
+**Photonic Compute**
+- Wavelength-division multiplexing (WDM) for data transmission
+- Mach-Zehnder interferometers (MZI) and ring resonators for modulation
+- In-memory computing using photonic integrated circuits (PIC)
+- ChipLab integration: Wavelength routing simulation, phase shifter modeling, optical power budget analysis
+
+**5 New Flexible Experimental MCP Tools**
+1. **MCP Tool: Adaptive Physics Selector** - Dynamically selects physics types (thermal/structural/fluid/electromagnetics) based on design characteristics
+2. **MCP Tool: Chiplet Topology Configurator** - Generates flexible chiplet interconnect topologies with auto-parameterization
+3. **MCP Tool: Multi-Physics Coupling Engine** - Unified framework for cross-domain coupling between electrical, thermal, structural, and fluid simulations
+4. **MCP Tool: Experimental Technology Toggles** - Feature flags to enable/disable emerging tech (Memristor, PCM, FeRAM, MRAM, Photonic) at runtime
+5. **MCP Tool: Graceful Degradation Fallback** - Automatic fallback to simpler models when experimental technologies are unavailable
+
+**ChipLab Current Status**: Not implemented
+
+**Missing**: Full device modeling, array-level simulation, compute-in-memory workflows, magnetic/torque modeling, photonic circuit simulation, flexible MCP tool framework
+
+**Priority**: P1 - Important for next-generation computing architectures
+
+**Effort**: Medium-High - requires device physics models, new MCP infrastructure, and experimental technology integration
+
+| Capability | Current Status | Missing | Priority | Effort | Modules to Extend |
+|---|---|---|---|---|---|
+| MCMM Analysis | Partial | Full MCMM matrix, statistical corners | P0 | High | `engine/`, `asic/`, `tools/` |
+| OCV/AOCV/POCV | Basic | AOCV with correlation, POCV statistical | P0 | High | `library/`, `engine/` |
+| Signal Integrity | None | Field solver, crosstalk, noise analysis | P1 | Medium-High | `tools/`, `backend/` |
+| Power Integrity | Basic | Full PI, di/dt, decap optimization | P0 | High | `tools/`, `power/` |
+| Thermal Integrity | Basic | Full-chip thermal, hotspot detection | P1 | Medium | `tools/`, `thermal/` |
+| DFM | None | Lithography, CMP, yield rules | P2 | Medium | `tools/`, `pdks/` |
+| Formal Verification | Partial | Equivalence checking, properties | P1 | Medium | `asic/`, `formal/` |
+| Liberty Parsing | Partial | Full NLDM/CCS support | P1 | Medium | `library/`, `models/` |
+| SDC Constraints | Basic | Full parser, advanced exceptions | P1 | Medium | `engine/`, `tools/` |
+| Floorplanning | Basic | Full flow, power planning | P1 | Medium-High | `asic/`, `physical/` |
+| CTS | Basic | Full CTS flow, skew optimization | P1 | High | `asic/`, `clock/` |
+| Routing | Basic | Global/detailed routing, DRC | P1 | High | `asic/`, `physical/` |
+| PE Extraction | None | RC extraction engine | P1 | High | `tools/`, `backend/` |
+| 3D-IC | None | TSV, bonding, interposer | P2 | High | `asic/`, `3dic/` |
+| **Experimental Tech** | **Not implemented** | **Device modeling, MCP tools, physics integration** | **P1** | **Medium-High** | **`mcp/`, `experimental/`** |
 
 ## 4. ChipLab Gap Analysis
 

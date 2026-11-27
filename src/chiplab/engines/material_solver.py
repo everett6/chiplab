@@ -3,6 +3,9 @@
 Provides a fast ReducedOrderSolver that uses analytical ODEs to model
 magnetization dynamics, pulse writing, impedance reading, and thermal
 relaxation. Supports architecture experiments with fast numerical performance.
+
+GENERIC PLACEHOLDER, not a ferrofluid model (``read_impedance`` is a constant 50 ohm).
+It refuses ferrofluid inputs; use ``models.materials.ferro_device``.
 """
 
 from __future__ import annotations
@@ -11,7 +14,10 @@ from typing import Optional
 
 import numpy as np
 
+import torch
 from chiplab.schemas.common import Provenance, TrackedValue
+from chiplab.core.gpu import get_gpu_backend
+from chiplab.credibility import refuse_ferrofluid
 
 
 class ReducedOrderSolver:
@@ -37,6 +43,8 @@ class ReducedOrderSolver:
         gamma: float | TrackedValue = 1.76e11,
         alpha: float | TrackedValue = 0.01,
         Ms: float | TrackedValue = 8e5,
+        device: str = "auto",
+        material: str | None = None,
     ):
         """Initialize the ReducedOrderSolver.
 
@@ -48,10 +56,15 @@ class ReducedOrderSolver:
             Damping factor. If TrackedValue, provenance must be set.
         Ms : float or TrackedValue
             Saturation magnetization (A/m). If TrackedValue, provenance must be set.
+        device : str
+            Device to run on: "auto", "cuda", "gpu", or "cpu". Default "auto".
         """
         self.gamma = self._ensure_tracked_value(gamma, Provenance.MEASURED, "rad/s/T")
         self.alpha = self._ensure_tracked_value(alpha, Provenance.ESTIMATED, "")
         self.Ms = self._ensure_tracked_value(Ms, Provenance.MEASURED, "A/m")
+        refuse_ferrofluid("ReducedOrderSolver", material)
+        self.device = device
+        self.backend = get_gpu_backend(device=device)
 
     # ------------------------------------------------------------------
     # Helper to convert raw float / int / TrackedValue into a TrackedValue
@@ -112,6 +125,7 @@ class ReducedOrderSolver:
         np.ndarray
             New state [m_x, m_y, m_z] after time step dt.
         """
+        refuse_ferrofluid("ReducedOrderSolver", inputs)
         m = state.copy().astype(float)
 
         # Extract effective field from inputs, default to zero
@@ -122,11 +136,26 @@ class ReducedOrderSolver:
                 h = float(h)
             h_eff = np.array([h, 0.0, 0.0], dtype=float)
 
+        # Use GPU backend if available for field operations
+        if self.backend.is_gpu:
+            h_eff = self.backend.to_device(h_eff, dtype="float64")
+            # Use PyTorch operations on GPU
+            m_t = self.backend.to_device(m, dtype="float64")
+            h_eff_t = h_eff
+        else:
+            m_t = m
+            h_eff_t = h_eff
+
         # LLG integration (explicit Euler, precessional + damping)
         # dm/dt = -gamma * (m x h_eff) + alpha * m x (dm/dt)
         # For small dt we use the combined form:
-        m_cross_h = np.cross(m, h_eff)
-        dm_dt = -self.gamma * m_cross_h + float(self.alpha) * np.cross(m, m_cross_h)
+        if self.backend.is_gpu:
+            m_cross_h = torch.cross(m_t, h_eff_t)
+            dm_dt_t = -float(self.gamma) * m_cross_h + float(self.alpha) * torch.cross(m_t, m_cross_h)
+            dm_dt = self.backend.to_numpy(dm_dt_t)
+        else:
+            m_cross_h = np.cross(m, h_eff)
+            dm_dt = -float(self.gamma) * m_cross_h + float(self.alpha) * np.cross(m, m_cross_h)
 
         m_new = m + dt * dm_dt
         # Renormalize to keep it a unit vector

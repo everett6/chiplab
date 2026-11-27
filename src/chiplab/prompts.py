@@ -109,7 +109,7 @@ def analog_pim_feasibility(rows: int = 256, cols: int = 256, precision: str = "i
 PROMPTS = (moe_decode_chiplet_balance, riscv_soc_power_area_tradeoff,
            hbm_accelerator_cost_per_token, analog_pim_feasibility)
 
-def create_custom_chip_from_idea(idea: str, target_node: str = "tsmc_n7") -> str:
+def create_custom_chip_from_idea(idea: str = "custom chip", target_node: str = "tsmc_n7") -> str:
     """A guided prompt that walks ChatGPT through: describing the idea -> chip_design_from_nl -> chip_validate_design -> chip_full_flow -> reviewing results -> iterating.
 
     Includes the exact tool call sequence for creating a custom chip from a natural language idea.
@@ -183,7 +183,7 @@ design with simulation results and exported files.
 Please provide your chip idea, and I'll guide you through the complete design process."""
 
 
-def optimize_existing_chip(design_id_or_name: str, objective: str = "ppu") -> str:
+def optimize_existing_chip(design_id_or_name: str = "default_design", objective: str = "ppu") -> str:
     """Prompt for optimizing an existing design: chip_get_design -> chip_analyze_bottleneck -> chip_suggest_improvements -> chip_sweep_parameters -> chip_compare_designs.
 
     Args:

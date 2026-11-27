@@ -95,6 +95,15 @@ def run_icarus_tt() -> dict[str, Any]:
     return r
 
 
+def run_hardening_import(run_id: int | None = None) -> dict[str, Any]:
+    from chiplab.asic import hardening
+    r = hardening.import_run(run_id)
+    if r.get("ok"):
+        r["status"] = r["conclusion"]
+        _save("hardening", r)
+    return r
+
+
 def run_formal(depth: int = 20, mode: str = "bmc") -> dict[str, Any]:
     from chiplab.asic import eda
     r = eda.formal_check(depth, mode)
@@ -190,13 +199,22 @@ LIMITATIONS = [
     "I2C: no clock stretching or multi-controller arbitration.",
     "mov pins/pindirs writes 8 pins from out_base; programs sharing pins with other lanes must use set/out.",
     "Instruction memory is 32 words shared by four lanes; three protocols at once used 28.",
-    "IHP area and delay come from Yosys+ABC mapping only: no placement, routing, clock tree or sign-off STA; power not estimated.",
+    "Local IHP area and delay come from Yosys+ABC only. Placement, routing, CTS and STA run in the TT GitHub Actions flow; "
+    "import a run to replace the estimates. Power is not estimated.",
     "The IHP-mapped netlist is not simulated (needs the sg13g2 cell Verilog models); gate-level runs use the generic netlist.",
     "Formal is a bounded check (BMC from reset), not an unbounded proof.",
 ]
 
 
+def _hardening() -> dict[str, Any] | None:
+    h = load("hardening")
+    return h if h and h.get("ok") else None
+
+
 def _r8_status() -> str:
+    h = _hardening()
+    if h and h.get("routed"):
+        return "met (placed and routed in 8x4)"
     ihp = load("synthesis_ihp")
     if ihp and ihp.get("ok"):
         return f"{ihp['tiles']['8x4']['verdict']} (estimate)"
@@ -204,6 +222,11 @@ def _r8_status() -> str:
 
 
 def _r8_evidence() -> str:
+    h = _hardening()
+    if h and h.get("routed"):
+        u = h.get("utilization")
+        return (f"LibreLane run {h['run_id']}: routed, Magic DRC {'clear' if h['drc_clear'] else 'errors'}, "
+                f"LVS {'clear' if h['lvs_clear'] else 'errors'}" + (f", utilization {u * 100:.1f}%" if u else ""))
     ihp, sy = load("synthesis_ihp"), load("synthesis")
     if ihp and ihp.get("ok"):
         t = ihp["tiles"]["8x4"]
@@ -236,14 +259,31 @@ def requirements(protocols_rec: dict | None, regression: dict | None, flow_st: d
          "evidence": "one programmable lane architecture runs every protocol"},
         {"id": "R8", "requirement": "Fits 8x4 tiles on IHP 130 nm", "status": _r8_status(),
          "evidence": _r8_evidence()},
-        {"id": "R9", "requirement": "Tiny Tapeout flow / GDS / precheck", "status": "ready to run" if gds_ready else "not run",
-         "evidence": "flow tools not installed here" if not gds_ready else "tools present"},
+        {"id": "R9", "requirement": "Tiny Tapeout flow / GDS / precheck", **_r9(gds_ready)},
         {"id": "R10", "requirement": "Strong verification", "status": "in progress" if regression else "not run",
          "evidence": f"{regression['passed']}/{regression['seeds']} lockstep seeds" if regression else "run the regression"},
         {"id": "R11", "requirement": f"Deadline {flow.COMPETITION['deadline']}",
          "status": f"{(dt.date.fromisoformat(flow.COMPETITION['deadline']) - dt.date.today()).days} days left",
          "evidence": "calendar"},
     ]
+
+
+def _r9(gds_ready: bool) -> dict[str, str]:
+    h = _hardening()
+    if not h:
+        return {"status": "ready to run" if gds_ready else "not run",
+                "evidence": "tools present" if gds_ready else "run the TT GitHub Actions gds workflow"}
+    jobs = h.get("jobs", {})
+    if jobs.get("gds") == "success":     # the Pages viewer job is cosmetic and not part of the flow verdict
+        status = "met" if jobs.get("precheck") == "success" else f"GDS built; precheck {jobs.get('precheck')}"
+    elif h.get("setup_violation_corners"):
+        status = f"failing: setup at {', '.join(h['setup_violation_corners'])}"
+    else:
+        status = f"failing ({h.get('conclusion')})"
+    clk = f" at {h['clock_mhz']:g} MHz" if h.get("clock_mhz") else ""
+    stale = "; RTL changed since this run" if h.get("stale") or not h.get("rtl_matches_repo", True) else ""
+    return {"status": status, "evidence": f"GitHub Actions run {h['run_id']}{clk}: " +
+            ", ".join(f"{k} {v}" for k, v in jobs.items()) + stale}
 
 
 def _st(ok: bool | None) -> str:
@@ -270,6 +310,12 @@ def competition_report() -> dict[str, Any]:
         **_ihp_metrics(ihp, na),
         "routing_congestion": {**na, "needs": "placement and routing (OpenROAD / TT flow)"},
         "power_mw": {**na, "needs": "switching activity + placed netlist (OpenROAD / TT flow)"},
+        **_hardening_metrics(_hardening()),
+        "hardening": _brief(load("hardening"), ["ok", "run_id", "url", "conclusion", "hardened", "jobs", "clock_mhz", "routed",
+                                                 "drc_clear", "lvs_clear", "setup_violation_corners",
+                                                 "hold_violation_corners", "antenna_pins", "antenna_nets",
+                                                 "utilization", "setup_wns_ns", "hold_wns_ns", "instance_area_um2",
+                                                 "power_w", "fidelity", "rtl_matches_repo"]),
         "memory_utilization": {"imem_words": isa.IMEM_WORDS,
                                "largest_concurrent_program_words": 28,
                                "note": "UART TX + UART RX + SPI mode 0 together (directed test)"},
@@ -300,6 +346,39 @@ def _ihp_metrics(ihp: dict | None, na: dict[str, Any]) -> dict[str, Any]:
         "fmax_mhz": {"value": round(1000 / ihp["logic_delay_ns"]) if ihp.get("logic_delay_ns") else None,
                      "status": est, "needs": "upper bound from logic delay only"},
     }
+
+
+def _hardening_metrics(h: dict[str, Any] | None) -> dict[str, Any]:
+    """Post-route values from the TT flow override the estimates, but only where the log reported them."""
+    if not h:
+        return {}
+    real = f"real: LibreLane post-route, GitHub Actions run {h['run_id']}" + (" (stale)" if h.get("stale") else "")
+    out: dict[str, Any] = {}
+    if h.get("utilization") is not None:
+        out["tile_utilization"] = {"value": h["utilization"], "status": real,
+                                   "needs": f"instance area / 8x4 core area, {h.get('utilization_source')}"}
+    if h.get("instance_area_um2") is not None:
+        out["mapped_cell_area_um2"] = {"value": h["instance_area_um2"], "status": real, "needs": "placed cell area"}
+    if h.get("setup_wns_ns") is not None:
+        out["timing_margin_ns"] = {"value": round(h["setup_wns_ns"], 3), "status": real,
+                                   "needs": f"worst setup slack over all corners at {h.get('clock_mhz')} MHz"}
+        if h.get("clock_period_ns"):
+            crit = h["clock_period_ns"] - h["setup_wns_ns"]
+            out["fmax_mhz"] = {"value": round(1000 / crit, 1), "status": real,
+                               "needs": f"1 / (period - WNS) = 1 / {crit:.2f} ns, worst corner; a shorter "
+                                        "CLOCK_PERIOD changes the placement, so rerun the flow to confirm"}
+    elif h.get("setup_violation_corners"):
+        out["timing_margin_ns"] = {"value": None, "status": real,
+                                   "needs": f"negative at {h.get('clock_mhz')} MHz in "
+                                            f"{', '.join(h['setup_violation_corners'])}; slack value not in this log"}
+    if h.get("route_drc_errors") is not None or h.get("routed"):
+        out["routing_congestion"] = {"value": h.get("route_drc_errors"), "status": real,
+                                     "needs": "detailed-route DRC errors (routed, Magic DRC "
+                                              f"{'clear' if h.get('drc_clear') else 'errors'})"}
+    if h.get("power_w") is not None:
+        out["power_mw"] = {"value": round(h["power_w"] * 1000, 3), "status": real,
+                           "needs": "OpenROAD power with default activity"}
+    return out
 
 
 def _brief(rec: dict | None, keys: list[str]) -> dict[str, Any]:
@@ -338,11 +417,23 @@ def checklist(repo: Path | None = None) -> list[dict[str, Any]]:
         item("Example protocol programs", True, "UART, SPI 0-3, I2C, USB-LS -> programs/*.pem"),
         item("Verification methodology", bool(reg), "docs/verification.md; regression " +
              (f"{reg['passed']}/{reg['seeds']}" if reg else "not run")),
-        item("Successful Tiny Tapeout flow", False if not ran["gds"]["available"] else None,
-             "hardening not run: " + ran["gds"]["status"]),
-        item("Passing GDS / precheck", False if not ran["tt_precheck"]["available"] else None,
-             "precheck not run: " + ran["tt_precheck"]["status"]),
+        *_flow_items(item, ran),
     ]
+
+
+def _flow_items(item: Any, ran: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    h = _hardening()
+    if not h:
+        return [item("Successful Tiny Tapeout flow", False if not ran["gds"]["available"] else None,
+                     "hardening not run: " + ran["gds"]["status"]),
+                item("Passing GDS / precheck", False if not ran["tt_precheck"]["available"] else None,
+                     "precheck not run: " + ran["tt_precheck"]["status"])]
+    ok = h.get("jobs", {}).get("gds") == "success"
+    pre = h.get("jobs", {}).get("precheck")
+    return [item("Successful Tiny Tapeout flow", ok, f"GitHub Actions run {h['run_id']}: gds {h.get('jobs', {}).get('gds')}; " +
+                 _r9(True)["status"]),
+            item("Passing GDS / precheck", True if pre == "success" else False if pre == "failure" else None,
+                 f"precheck {pre} in run {h['run_id']}")]
 
 
 def technical_report_md() -> str:

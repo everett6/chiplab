@@ -59,6 +59,10 @@ class ChipletSpec(BaseModel):
     process_nm: ParamInt | None = None
     memory: MemorySpec | None = None
     compute: ComputeSpec | None = None
+    material_device: dict[str, Any] | None = Field(None, description=(
+        "Device record (geometry, parameters, operating conditions, user measurements) of a "
+        "simulated material device. Engines re-run the physics validation gate on it; see "
+        "chiplab.credibility."))
 
 
 class PackageSpec(BaseModel):

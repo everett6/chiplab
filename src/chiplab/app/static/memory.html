@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ChipLab · Memory Studio</title>
+    <style>
+        :root {
+            --bg: #0b0f17; --panel: #121820; --panel-2: #18202a; --line: #263140;
+            --text: #e6edf3; --muted: #9aa7b4; --faint: #6b7886;
+        }
+        body { min-height: 100vh; margin: 0; font-family: system-ui, -apple-system, sans-serif; 
+               background: var(--bg); color: var(--text); display: flex; align-items: center; justify-content: center; }
+        .panel { background: var(--panel); padding: 2rem; border-radius: 8px; max-width: 600px; width: 100%; }
+        .muted { color: var(--muted); }
+    </style>
+</head>
+<body>
+    <div class="panel">
+        <h1>Memory Studio</h1>
+        <p class="muted">Memory configuration and evaluation tool</p>
+        <p>Memory analysis endpoints are available at <code>/api/lab/custom_memory</code></p>
+    </div>
+</body>
+</html>

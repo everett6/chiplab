@@ -3,7 +3,8 @@
 Provides Elmore delay calculation, repeater insertion optimization,
 and wire capacitance extraction for VLSI interconnects.
 
-Metal layer presets are defined for sky130, tsmc_n7, and tsmc_n3 processes.
+SKY130 wire R and C come from the SkyWater PDK RCX tables (cited in SKY130_SOURCE); other
+processes need explicit resistivity, thickness and capacitance.
 """
 
 from __future__ import annotations
@@ -11,41 +12,50 @@ from __future__ import annotations
 from chiplab.schemas.common import TrackedValue, Provenance
 import numpy as np
 
+from chiplab.core.gpu import GPUBackend, get_gpu_backend
 
-# Metal layer presets for various processes
-# Format: {metal_layer: {"resistivity_uc_ohm_cm": float, "dielectric_er": float}}
-_METAL_PRESETS = {
-    "sky130": {
-        "M1": {"resistivity_uc_ohm_cm": 1.95, "dielectric_er": 3.8},
-        "M2": {"resistivity_uc_ohm_cm": 1.75, "dielectric_er": 3.8},
-        "M3": {"resistivity_uc_ohm_cm": 1.55, "dielectric_er": 3.8},
-        "M4": {"resistivity_uc_ohm_cm": 1.35, "dielectric_er": 3.8},
-        "M5": {"resistivity_uc_ohm_cm": 1.15, "dielectric_er": 3.8},
-        "M6": {"resistivity_uc_ohm_cm": 0.95, "dielectric_er": 3.8},
-        "M7": {"resistivity_uc_ohm_cm": 0.75, "dielectric_er": 3.8},
-        "M8": {"resistivity_uc_ohm_cm": 0.55, "dielectric_er": 3.8},
-    },
-    "tsmc_n7": {
-        "M1": {"resistivity_uc_ohm_cm": 2.10, "dielectric_er": 3.5},
-        "M2": {"resistivity_uc_ohm_cm": 1.90, "dielectric_er": 3.5},
-        "M3": {"resistivity_uc_ohm_cm": 1.70, "dielectric_er": 3.5},
-        "M4": {"resistivity_uc_ohm_cm": 1.50, "dielectric_er": 3.5},
-        "M5": {"resistivity_uc_ohm_cm": 1.30, "dielectric_er": 3.5},
-        "M6": {"resistivity_uc_ohm_cm": 1.10, "dielectric_er": 3.5},
-        "M7": {"resistivity_uc_ohm_cm": 0.90, "dielectric_er": 3.5},
-        "M8": {"resistivity_uc_ohm_cm": 0.70, "dielectric_er": 3.5},
-    },
-    "tsmc_n3": {
-        "M1": {"resistivity_uc_ohm_cm": 2.30, "dielectric_er": 3.4},
-        "M2": {"resistivity_uc_ohm_cm": 2.10, "dielectric_er": 3.4},
-        "M3": {"resistivity_uc_ohm_cm": 1.90, "dielectric_er": 3.4},
-        "M4": {"resistivity_uc_ohm_cm": 1.70, "dielectric_er": 3.4},
-        "M5": {"resistivity_uc_ohm_cm": 1.50, "dielectric_er": 3.4},
-        "M6": {"resistivity_uc_ohm_cm": 1.30, "dielectric_er": 3.4},
-        "M7": {"resistivity_uc_ohm_cm": 1.10, "dielectric_er": 3.4},
-        "M8": {"resistivity_uc_ohm_cm": 0.90, "dielectric_er": 3.4},
-    },
+
+_RCX = "https://foss-eda-tools.googlesource.com/skywater-pdk/+/refs/heads/main/docs/rules/rcx/"
+
+# SKY130 interconnect from the SkyWater PDK RCX tables (values as printed there).
+#   r_sq_ohm      resistance-values.tsv, "Layer Resistivity (mohms/sq)" / 1000
+#   below         the layer directly underneath (worst case: a dense lower layer)
+#   c_area_af_um2 capacitance-parallel.tsv, plate cap to `below` (aF/um^2)
+#   c_fringe_af_um capacitance-fringe-downward.tsv, fringe cap to `below` per edge (aF/um)
+SKY130_LAYERS: dict[str, dict[str, float | str]] = {
+    "li1":  {"r_sq_ohm": 12.8,  "below": "poly", "c_area_af_um2": 94.1644,
+             "c_fringe_af_um": 51.846},
+    "met1": {"r_sq_ohm": 0.125, "below": "li1",  "c_area_af_um2": 114.1970,
+             "c_fringe_af_um": 59.496},
+    "met2": {"r_sq_ohm": 0.125, "below": "met1", "c_area_af_um2": 133.8610,
+             "c_fringe_af_um": 67.045},
+    "met3": {"r_sq_ohm": 0.047, "below": "met2", "c_area_af_um2": 86.1861,
+             "c_fringe_af_um": 69.846},
+    "met4": {"r_sq_ohm": 0.047, "below": "met3", "c_area_af_um2": 84.0346,
+             "c_fringe_af_um": 70.522},
+    "met5": {"r_sq_ohm": 0.029, "below": "met4", "c_area_af_um2": 68.3252,
+             "c_fringe_af_um": 82.819},
 }
+SKY130_SOURCE = _RCX + " (resistance-values.tsv, capacitance-parallel.tsv, " \
+                       "capacitance-fringe-downward.tsv)"
+_ALIASES = {f"M{i}": f"met{i}" for i in range(1, 6)}
+
+
+def sky130_wire_rc(width_um: float, metal_layer: str) -> dict[str, float | str]:
+    """Per-micron R and C of a SKY130 wire over a dense layer below it.
+
+    R/um = R_sq / W.  C/um = c_area W + 2 c_fringe (both edges). Same-layer sidewall
+    coupling to neighbours is not in the PDK tables and is left out, so C is a lower bound
+    for a wire with close neighbours."""
+    layer = _ALIASES.get(metal_layer, metal_layer)
+    if layer not in SKY130_LAYERS:
+        raise KeyError(f"sky130 layers are li1 and met1-met5 (or M1-M5); got {metal_layer!r}")
+    if width_um <= 0:
+        raise ValueError("width_um must be positive")
+    d = SKY130_LAYERS[layer]
+    r = float(d["r_sq_ohm"]) / width_um
+    c = (float(d["c_area_af_um2"]) * width_um + 2 * float(d["c_fringe_af_um"])) * 1e-18
+    return {"layer": layer, "r_ohm_per_um": r, "c_f_per_um": c, "source": SKY130_SOURCE}
 
 
 def rc_delay(
@@ -54,97 +64,49 @@ def rc_delay(
     metal_layer: str,
     resistivity_uc_ohm_cm: float | None = None,
     dielectric_er: float | None = None,
+    device: str = "auto",
+    thickness_um: float | None = None,
+    c_ff_per_um: float | None = None,
 ) -> float:
-    """Calculate Elmore RC delay in picoseconds.
+    """Elmore delay of a uniform distributed RC wire, in picoseconds: t = 0.5 R C.
 
-    The Elmore delay for a uniform RC line is:
-        t_delay = 0.5 * R * C * L^2
+    (The 50 % step-response delay of the same line is ~0.38 R C.)
 
-    Where R is resistance per unit length, C is capacitance per unit length,
-    and L is the wire length.
+    By default R and C come from the SKY130 PDK RCX tables (see sky130_wire_rc); metal_layer
+    is li1, met1-met5, or M1-M5 as aliases for met1-met5.
 
-    Parameters
-    ----------
-    length_mm : float
-        Wire length in millimeters.
-    width_um : float
-        Wire width in micrometers.
-    metal_layer : str
-        Metal layer name (e.g., "M1", "M2", ..., "M8").
-    resistivity_uc_ohm_cm : float, optional
-        Sheet resistivity in ohm-cm. If not provided, uses metal layer preset.
-    dielectric_er : float, optional
-        Dielectric relative permittivity. If not provided, uses metal layer preset.
+    Overrides for other processes: resistivity_uc_ohm_cm (bulk, micro-ohm cm) needs
+    thickness_um, and gives R = rho L / (W t); c_ff_per_um sets the capacitance per micron.
+    dielectric_er scales the table capacitance by er / 3.9 (assumes the tables reflect an
+    SiO2-like effective permittivity). Wire driver and load are not included.
 
-    Returns
-    -------
-    float
-        Elmore delay in picoseconds (ps).
-
-    Raises
-    ------
-    KeyError
-        If metal_layer is not found in the presets and no custom values provided.
+    Before 2026-11 this function used a placeholder (rho in micro-ohm cm read as ohm cm, no
+    thickness, 0.1 er fF/mm), which under-estimated a 1 mm met1 wire by ~30x.
     """
-    # Use metal layer preset if available
-    if metal_layer in _METAL_PRESETS.get("sky130", {}):
-        preset = _METAL_PRESETS["sky130"][metal_layer]
-        if resistivity_uc_ohm_cm is None:
-            resistivity_uc_ohm_cm = preset["resistivity_uc_ohm_cm"]
-        if dielectric_er is None:
-            dielectric_er = preset["dielectric_er"]
-    elif metal_layer in _METAL_PRESETS.get("tsmc_n7", {}):
-        preset = _METAL_PRESETS["tsmc_n7"][metal_layer]
-        if resistivity_uc_ohm_cm is None:
-            resistivity_uc_ohm_cm = preset["resistivity_uc_ohm_cm"]
-        if dielectric_er is None:
-            dielectric_er = preset["dielectric_er"]
-    elif metal_layer in _METAL_PRESETS.get("tsmc_n3", {}):
-        preset = _METAL_PRESETS["tsmc_n3"][metal_layer]
-        if resistivity_uc_ohm_cm is None:
-            resistivity_uc_ohm_cm = preset["resistivity_uc_ohm_cm"]
-        if dielectric_er is None:
-            dielectric_er = preset["dielectric_er"]
-
-    # Constants
-    # Resistance per sq: R_sq = resistivity_uc / width (in consistent units)
-    # Capacitance per unit length: C ~ epsilon * epsilon_0 * width / spacing
-    # Using simplified models for VLSI interconnects
-
-    # Convert units
-    length_cm = length_mm * 0.1  # mm to cm
-    width_cm = width_um * 1e-4  # um to cm
-
-    # Resistance: R = resistivity * length / (width * thickness)
-    # For simplicity, using sheet resistance model
-    if resistivity_uc_ohm_cm is not None and resistivity_uc_ohm_cm > 0:
-        # Sheet resistance per square: R_sq = resistivity / effective_thickness
-        # We approximate: R = resistivity * length / width
-        resistance_ohm = resistivity_uc_ohm_cm * length_cm / width_cm if width_cm > 0 else np.inf
-    else:
-        resistance_ohm = 1e12  # fallback very large value
-
-    # Capacitance per unit length (fF/mm): C ~ epsilon_0 * epsilon_r * width / spacing
-    # Assuming spacing ~ width for minimum spacing
-    # C_per_mm = epsilon_0 * epsilon_r * (width_mm / spacing_mm) ≈ epsilon_0 * epsilon_r
-    # epsilon_0 = 8.854e-12 F/m = 8.854e-3 fF/mm
-    # For a rough estimate: C_per_mm ≈ 0.1 * epsilon_r fF/mm for typical VLSI
-    capacitance_per_mm_fF = 0.1 * dielectric_er if dielectric_er else 0.1
-
-    # Total capacitance
-    total_capacitance_fF = capacitance_per_mm_fF * length_mm
-
-    # Elmore delay: t = 0.5 * R * C
-    # But we need consistent units. R in ohms, C in farads.
-    # C in fF = C * 1e-15
-    # t_ps = 0.5 * R * C * 1e12
-
-    if resistance_ohm > 0 and total_capacitance_fF > 0:
-        delay_ps = 0.5 * resistance_ohm * total_capacitance_fF * 1e-15 * 1e12
-    else:
-        delay_ps = 0.0
-
-    return float(delay_ps)
+    get_gpu_backend(device=device)
+    if length_mm < 0 or width_um <= 0:
+        raise ValueError("length_mm must be >= 0 and width_um > 0")
+    length_um = length_mm * 1e3
+    custom_r = resistivity_uc_ohm_cm is not None
+    if custom_r:
+        if not thickness_um or thickness_um <= 0:
+            raise ValueError("resistivity_uc_ohm_cm needs thickness_um (R = rho L / (W t))")
+        r_per_um = resistivity_uc_ohm_cm * 1e-8 / (width_um * 1e-6 * thickness_um * 1e-6) * 1e-6
+    if c_ff_per_um is not None:
+        c_per_um = c_ff_per_um * 1e-15
+    if not custom_r or c_ff_per_um is None:
+        try:
+            tab = sky130_wire_rc(width_um, metal_layer)
+        except KeyError:
+            raise KeyError(f"no preset for {metal_layer!r}: give resistivity_uc_ohm_cm + "
+                           "thickness_um and c_ff_per_um for non-SKY130 processes") from None
+        if not custom_r:
+            r_per_um = float(tab["r_ohm_per_um"])
+        if c_ff_per_um is None:
+            c_per_um = float(tab["c_f_per_um"]) * ((dielectric_er / 3.9) if dielectric_er
+                                                    else 1.0)
+    delay_s = 0.5 * (r_per_um * length_um) * (c_per_um * length_um)
+    return float(delay_s * 1e12)
 
 
 def wire_capacitance(
@@ -152,6 +114,7 @@ def wire_capacitance(
     width_um: float,
     thickness_um: float,
     er: float,
+    device: str = "auto",
 ) -> float:
     """Calculate wire capacitance in femtofarads (fF).
 
@@ -170,12 +133,20 @@ def wire_capacitance(
         Insulator thickness in micrometers.
     er : float
         Dielectric relative permittivity.
+    device : str, default "auto"
+        Device to run solver on. "auto", "cpu", or "cuda".
+        If "auto", uses GPU if available, otherwise CPU.
+        Note: For wire_capacitance, this parameter is reserved for future GPU offloading;
+        the function currently runs on CPU but the parameter is maintained for
+        API consistency with other physics models.
 
     Returns
     -------
     float
         Capacitance in femtofarads (fF).
     """
+    backend = get_gpu_backend(device=device)
+
     # Constants
     epsilon_0 = 8.854187817e-12  # F/m
 
@@ -200,6 +171,7 @@ def insert_repeaters(
     r_per_um: float,
     c_per_um: float,
     gate_delay_ps: float,
+    device: str = "auto",
 ) -> dict:
     """Optimize repeater insertion for minimum delay.
 
@@ -225,6 +197,12 @@ def insert_repeaters(
         Capacitance per micrometer in fF/um.
     gate_delay_ps : float
         Gate delay per buffer in picoseconds.
+    device : str, default "auto"
+        Device to run solver on. "auto", "cpu", or "cuda".
+        If "auto", uses GPU if available, otherwise CPU.
+        Note: For insert_repeaters, this parameter is reserved for future GPU offloading;
+        the function currently runs on CPU but the parameter is maintained for
+        API consistency with other physics models.
 
     Returns
     -------
@@ -235,6 +213,8 @@ def insert_repeaters(
         - "repeater_size": float, relative buffer size
         - "min_delay_ps": float, minimum achievable delay in ps
     """
+    backend = get_gpu_backend(device=device)
+
     if length_mm <= 0 or r_per_um <= 0 or c_per_um <= 0 or gate_delay_ps <= 0:
         return {
             "num_repeaters": 0,

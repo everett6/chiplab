@@ -33,3 +33,6 @@ chiplab_experiments.db*
 # Handoff bundles written by export_pareto_handoff_bundle
 chiplab_exports/
 chiplab_layouts/
+.chiplab_sandbox/
+electron/node_modules/
+electron/dist/

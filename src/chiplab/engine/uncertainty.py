@@ -24,6 +24,7 @@ import numpy as np
 from pydantic import BaseModel
 
 from ..schemas.common import Provenance, TrackedValue
+from ..credibility import is_material_chiplet
 from ..schemas.design import DesignSpec, plain_design
 from ..schemas.simulation import SimulationConfig
 from ..schemas.workload import WorkloadSpec
@@ -125,6 +126,11 @@ def propagate_uncertainty(design: DesignSpec, workload: WorkloadSpec | None = No
     from ..backends.ecore import apply_ecore_to_design
 
     params = _uncertain_params(design, default_pct)
+    # A material chiplet's numbers are computed from its validated device record; the gate
+    # rejects any other value, and no uncertainty on them is modelled.
+    fixed = tuple(f"chiplets[{i}]." for i, c in enumerate(design.chiplets)
+                  if is_material_chiplet(c))
+    params = [p for p in params if not (fixed and p["parameter"].startswith(fixed))]
     base, _ = plain_design(design)
     # eCore-derived chiplet numbers come from the array simulator, not from the spec: they
     # are fixed here (their uncertainty is described by the eCore result's limitations).

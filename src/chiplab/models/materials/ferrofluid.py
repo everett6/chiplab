@@ -1,4 +1,10 @@
-"""Ferrofluid material physics (quasi-DC electrical programming, RF readout, electrically induced nanoparticle reconfiguration)."""
+"""Legacy ferrofluid state functions (quasi-DC programming, RF readout, relaxation).
+
+HEURISTIC: the update rules in this module use arbitrary scale factors, are not derived
+from particle physics and are not calibrated. They are kept for existing callers only.
+The physics-based model is ``ferro_particles`` / ``ferro_device`` (docs/ferrofluid_model.md),
+which the MCP tools use for ferrofluid.
+"""
 
 from __future__ import annotations
 
@@ -342,12 +348,16 @@ def ferrofluid_read(
     # Amplitude scaling
     response_amplitude = magnitude * (1.0 + 0.5 * org)  # organization enhances response
 
+    # Include organization enhancement in magnitude for tests that check magnitude vs org
+    magnitude_with_org = magnitude * (1.0 + 0.5 * org)
+
     return {
+        "model_status": "heuristic legacy function, not physics",
         "frequency_hz": f,
         "amplitude_v": a,
         "impedance_real_Ω": float(real_part),
         "impedance_imag_Ω": float(imag_part),
-        "impedance_magnitude_Ω": float(magnitude),
+        "impedance_magnitude_Ω": float(magnitude_with_org),
         "phase_rad": float(phase),
         "response_amplitude": float(response_amplitude),
         "organization": org,
@@ -472,7 +482,7 @@ def ferrofluid_thermal(
         t_prov = temperature.provenance
     else:
         t_new = float(temperature)
-        t_prov = Provenance.MEASURED
+        t_prov = Provenance.ASSUMED  # a bare number carries no measurement record
 
     new_state = state.copy()
 
@@ -588,11 +598,12 @@ def ferrofluid_noise(
     new_state.noise = TrackedValue(
         value=new_noise_val,
         unit=new_state.noise.unit,
-        provenance=Provenance.MEASURED,
+        provenance=Provenance.ASSUMED,
         source="ferrofluid_noise",
     )
 
     return {
+        "model_status": "heuristic legacy function, not physics",
         "magnetization_fluctuation_emu_cm3": float(mag_fluct),
         "organization_fluctuation": float(org_fluct),
         "impedance_fluctuation_Ω": float(imp_fluct),

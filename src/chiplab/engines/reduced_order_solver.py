@@ -1,4 +1,8 @@
-"""Level 2: Spatial multiphysics model with 2D/3D grid and coupled PDEs."""
+"""Level 2: Spatial multiphysics model with 2D/3D grid and coupled PDEs.
+
+GENERIC PLACEHOLDER, not a ferrofluid model. It refuses ferrofluid inputs; use
+``models.materials.ferro_device``.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +10,7 @@ from typing import Any, Optional
 
 import numpy as np
 
+from chiplab.credibility import refuse_ferrofluid
 from chiplab.schemas.common import Provenance, TrackedValue
 
 
@@ -25,6 +30,7 @@ class SpatialMultiphysicsSolver:
         self,
         grid_size: tuple[int, int] | tuple[int, int, int] = (64, 64),
         precision: str = "double",
+        material: str | None = None,
     ):
         """Initialize the SpatialMultiphysicsSolver.
 
@@ -36,6 +42,7 @@ class SpatialMultiphysicsSolver:
         precision : str
             Floating point precision ("float" or "double").
         """
+        refuse_ferrofluid("SpatialMultiphysicsSolver", material)
         self.grid_size = grid_size
         self.precision = precision
         self.dtype = np.float64 if precision == "double" else np.float32
@@ -73,6 +80,7 @@ class SpatialMultiphysicsSolver:
         np.ndarray
             New spatially resolved state after time step dt.
         """
+        refuse_ferrofluid("SpatialMultiphysicsSolver", inputs, grid)
         # Ensure state has the right shape for the grid
         if state.ndim == 1:
             # Reshape to grid
